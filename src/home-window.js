@@ -1,8 +1,12 @@
-// 主窗口按浏览器可视视口定位，手机安全区与外侧间距由CSS处理。
+// 主窗口按浏览器可视视口定位，TT 移动端的系统避让由宿主提供。
 export function readPanelViewport(win = globalThis.window) {
   const visual = win.visualViewport;
   return { left: Number(visual?.offsetLeft) || 0, top: Number(visual?.offsetTop) || 0,
     width: Math.max(0, Number(visual?.width) || win.innerWidth), height: Math.max(0, Number(visual?.height) || win.innerHeight) };
+}
+
+export function isCompactHome(win = globalThis.window) {
+  return win.__TAURITAVERN_HOST__?.kind === 'mobile' || win.innerWidth <= 640;
 }
 
 export function isForeignWindow(event, panel) {
@@ -74,7 +78,6 @@ export function bindOutsideClose({ target, panel, close, canClose = () => true, 
 export function createHomeWindow(surface) {
   const win = surface.ownerDocument.defaultView;
   const host = surface.getRootNode().host;
-  const desktop = win.matchMedia('(min-width: 641px)');
   let gesture = null;
   let preferredPosition = null;
 
@@ -93,7 +96,7 @@ export function createHomeWindow(surface) {
     if (surface.hasPointerCapture(id)) surface.releasePointerCapture(id);
   }
   function down(event) {
-    if (!desktop.matches || event.button !== 0 || event.isPrimary === false || gesture || !event.target.closest('.home-header')) return;
+    if (isCompactHome(win) || event.button !== 0 || event.isPrimary === false || gesture || !event.target.closest('.home-header')) return;
     const control = event.target.closest('label') || event.target.closest('button, input, textarea, select, a, [contenteditable]');
     if (control) {
       const rect = control.getBoundingClientRect();
@@ -131,7 +134,7 @@ export function createHomeWindow(surface) {
     host.style.left = `${view.left - origin.left}px`;
     host.style.top = `${view.top - origin.top}px`;
     for (const property of ['width', 'height']) surface.style.setProperty(`--tt-window-${property}`, `${view[property]}px`);
-    if (!desktop.matches) {
+    if (isCompactHome(win)) {
       for (const property of ['left', 'top', 'right', 'width', 'height']) surface.style.removeProperty(property);
       return;
     }

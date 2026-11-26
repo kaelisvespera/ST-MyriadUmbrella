@@ -32,6 +32,7 @@ export const homeCss = `
     .toolbox summary>span,.toolbox .feature-switch>span{flex:1;min-width:0}.toolbox .feature-switch{padding-left:23px}.toolbox .feature-body{display:flex;align-items:center;flex-wrap:wrap;gap:7px;padding:0 2px 12px 23px}.toolbox .row{gap:7px;margin:0}.toolbox button,.toolbox select{padding:5px 9px;border:1px solid var(--tt-border);border-radius:5px;background:var(--tt-surface);font-size:12px;color:var(--tt-ink);line-height:1.5}
     .toolbox select{max-width:100%}.toolbox input[type=checkbox]{width:15px;height:15px;margin:0;accent-color:var(--tt-ink)}
     .toolbox .error{color:var(--tt-ink);font-size:12px}
-    @media(min-width:641px){:host{pointer-events:none}.home-header{cursor:grab;touch-action:none;user-select:none}.home.is-dragging .home-header{cursor:grabbing}}
+    @media(min-width:641px){:host(:not(.tt-mobile)) .home-header{cursor:grab;touch-action:none;user-select:none}.home.is-dragging .home-header{cursor:grabbing}}
     @media(max-width:640px){.home{top:max(20px,env(safe-area-inset-top,0px));left:50%;right:auto;transform:translateX(-50%);width:max(0px,calc(var(--tt-window-width,100dvw) - 20px));max-width:none;height:max(0px,calc(var(--tt-window-height,100dvh) - max(40px,env(safe-area-inset-top,0px)) - max(40px,env(safe-area-inset-bottom,0px))));max-height:none}}
+    :host(.tt-mobile) .home{top:20px;left:50%;right:auto;transform:translateX(-50%);width:max(0px,calc(var(--tt-window-width,100dvw) - 20px));max-width:none;height:max(0px,calc(var(--tt-window-height,100dvh) - 80px));max-height:none}
 ` + albumCss;

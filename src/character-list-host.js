@@ -17,13 +17,14 @@ export async function loadCharacterListHost() {
             // Native classes and data-chid keep delegated selection, tags and
             // bulk actions on the host's existing routes, including off-page cards.
             const row = document.querySelector('#character_template .character_select').cloneNode(true);
-            row.id = `CharID${entity.id}`; row.dataset.chid = String(entity.id);
+            row.id = `CharID${entity.id}`; row.dataset.chid = String(entity.id); row.dataset.avatar = card.avatar;
             const name = main.getCharacterName?.(card) ?? card.name;
             const favorite = main.isCharacterFavorite ? main.isCharacterFavorite(card) : card.fav === true || card.fav === 'true';
             const setText = (selector, value, hideEmpty = false) => {
                 const element = row.querySelector(selector);
                 element.textContent = value || '';
                 if (hideEmpty && !value) element.style.display = 'none';
+                return element;
             };
             setText('.ch_name', name); row.querySelector('.ch_name').title = `[Character] ${name}`;
             row.querySelector('.avatar').title = `[Character] ${name}\nFile: ${card.avatar}`;
@@ -31,7 +32,15 @@ export async function loadCharacterListHost() {
             image.src = card.avatar === 'none' ? '/' + main.default_avatar : ctx.getThumbnailUrl('avatar', card.avatar);
             setText('.ch_avatar_url', ctx.powerUserSettings.show_card_avatar_urls ? card.avatar : '');
             setText('.ch_description', main.getCharacterCreatorNotes?.(card) ?? card.data?.creator_notes, true);
-            setText('.character_version', card.data?.[ctx.powerUserSettings.aux_field || 'character_version'], true);
+            const version = setText('.character_version', card.data?.[ctx.powerUserSettings.aux_field || 'character_version'], true);
+            const primary = row.querySelector(':scope > button.sr-only');
+            if (primary) {
+                primary.setAttribute('aria-label', name);
+                if (version.textContent) {
+                    version.id = `${row.id}-version`;
+                    primary.setAttribute('aria-describedby', version.id);
+                }
+            }
             row.classList.toggle('is_fav', favorite);
             row.querySelector('.ch_fav').value = String(favorite);
             row.querySelector('.ch_fav_icon').style.display = 'none';

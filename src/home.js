@@ -1,4 +1,4 @@
-import { createHomeWindow, bindOutsideClose, isForeignWindow } from './home-window.js';
+import { createHomeWindow, bindOutsideClose, isForeignWindow, isCompactHome } from './home-window.js';
 import { shadowHost } from './ui.js';
 import { homeCss } from './home-style.js';
 import { mountLibrary } from './library.js';
@@ -28,6 +28,7 @@ export function installHome(actions) {
         if (dialog) { dialog.focus(); return; }
         const view = shadowHost('st-tools-home', homeCss);
         host = view.host;
+        host.classList.toggle('tt-mobile', window.__TAURITAVERN_HOST__?.kind === 'mobile');
         const root = view.root;
         const icons = document.createElement('link'); icons.rel = 'stylesheet';
         icons.href = new URL('../../../../../css/fontawesome.min.css', import.meta.url).href;
@@ -57,7 +58,7 @@ export function installHome(actions) {
         root.addEventListener('keydown', event => event.stopPropagation());
         dialog.addEventListener('cancel', event => { event.preventDefault(); close(); });
         disposeWindow = createHomeWindow(dialog);
-        unbindOutsideClose = bindOutsideClose({ target: document, panel: dialog, close, canClose: () => innerWidth <= 640 && !document.querySelector('#st-tools-editor') });
+        unbindOutsideClose = bindOutsideClose({ target: document, panel: dialog, close, canClose: () => isCompactHome() && !document.querySelector('#st-tools-editor') });
         const escape = event => {
             if (event.key !== 'Escape' || event.isComposing || event.defaultPrevented) return;
             if (isForeignWindow(event, dialog)) return;
@@ -72,6 +73,12 @@ export function installHome(actions) {
     }
     const removeWand = installWandEntry(open);
     return {
+        handleBack() {
+            if (!dialog?.open) return false;
+            if (dialog.querySelector('#char-view:not([hidden])') && library?.handleBack()) return true;
+            close();
+            return true;
+        },
         refreshTheme() { library?.refreshTheme(); },
         destroy() { close(); removeWand(); document.fonts.delete(monthFont); },
     };

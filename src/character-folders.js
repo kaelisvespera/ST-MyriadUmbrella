@@ -166,7 +166,8 @@ function mountCharacterFolders(host) {
             // Read the host's full filtered/sorted entity list, not its current
             // page. Only avatar IDs and live references are used for grouping.
             entities = host.entities();
-            back = [...list.children].find(node => node.matches('.bogus_folder_select') && !node.getAttribute('tagid')) || null;
+            back = [...list.children].find(node => node.matches('.bogus_folder_select')
+                && (node.matches('#BogusFolderBack, .bogus_folder_select_back') || !node.getAttribute('tagid'))) || null;
             render();
         });
     }

@@ -255,6 +255,12 @@ export function mountLibrary(root, scrollArea, header, controls) {
     }
     search.addEventListener('input', filter); more.addEventListener('click', appendBatch); filter();
     return {
+        handleBack() {
+            if (!options.hidden) { closeOptions(); return true; }
+            if (reader.hidden) return false;
+            back();
+            return true;
+        },
         refreshTheme,
         setVisible(visible) { header.hidden = !visible; controls.hidden = !visible || !reader.hidden; closeOptions(); if (visible && reader.hidden && mode !== 'grid') pages.scrollTop = pageIndex * pages.clientHeight; },
         destroy() { sheets.disconnect(); covers.disconnect(); shadow.removeEventListener('click', outside); shadow.removeEventListener('keydown', escape); matched = []; greetings = []; pages.replaceChildren(); grid = null; root.replaceChildren(); header.replaceChildren(); controls.replaceChildren(); },

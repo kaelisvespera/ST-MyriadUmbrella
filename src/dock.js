@@ -33,9 +33,10 @@ const css = `
     @keyframes dock-breathe{0%,100%{opacity:.12}50%{opacity:.42}}
     @media(prefers-reduced-motion:reduce){.slot[data-busy]::after{animation:none;opacity:.2}}
     .slot:hover,.slot:focus-visible{outline:1px solid color-mix(in srgb,var(--tt-accent) 45%,transparent);outline-offset:0}
-    .slot.missing{border:1px dashed var(--tt-border)}.slot.missing::after{content:'·';opacity:.5}
+    .slot[hidden]{display:none}
     .empty{position:absolute;width:${SLOT_SIZE}px;height:${SLOT_SIZE}px;border-radius:50%;font-size:22px;padding:0;pointer-events:auto}
     .manager-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 0;border-bottom:1px solid var(--tt-border)}
+    .manager-row small{display:block;overflow-wrap:anywhere;opacity:.72}
     dialog{pointer-events:auto}
     .pick-note{position:absolute;left:50%;top:20px;transform:translateX(-50%);width:max-content;max-width:calc(100vw - 32px);padding:10px 14px;background:var(--tt-surface);border:1px solid var(--tt-border);border-radius:12px;pointer-events:auto}
 `;
@@ -52,6 +53,26 @@ function paintGlow(control, slot, visible) {
     if (slot.style.getPropertyValue('--tt-working-color') === color) return;
     if (color) slot.style.setProperty('--tt-working-color', color);
     else slot.style.removeProperty('--tt-working-color');
+}
+
+function itemName(item) {
+    const { title, elementId, scriptId, classSelector } = item.fingerprint || {};
+    return [item.name, title, scriptId, elementId, classSelector]
+        .map(value => typeof value === 'string' ? value.trim() : '')
+        .find(value => value && value !== '未命名') || '悬浮球';
+}
+
+function isSourceAvailable(element, control, binding, checkComputedDisplay = false) {
+    if (!element?.isConnected || !control?.isConnected || element.hidden || control.hidden) return false;
+    // Some sources leave their outer shadow host in the document when the
+    // actionable control has been torn down.
+    if (element.shadowRoot && element === control
+        && ['tmt-fab-host', 'tmt-card-fab-host', 'qqj-fab-host', 'sp-fab'].includes(element.id)) return false;
+    const dockHides = binding?.compatibility && element.style.display === 'none'
+        && element.style.getPropertyPriority('display') === 'important'
+        && binding.prior.get('display')?.value !== 'none';
+    const hidden = node => node.style.display === 'none' || checkComputedDisplay && getComputedStyle(node).display === 'none';
+    return (dockHides || !hidden(element)) && (control === element || !hidden(control));
 }
 
 export function installDock() {
@@ -100,7 +121,7 @@ export function installDock() {
         const listRect = list.getBoundingClientRect();
         for (const [key, binding] of bindings) {
             const slot = slots.get(key);
-            if (!slot) continue;
+            if (!slot || !isSourceAvailable(binding.element, binding.control, binding)) continue;
             const moving = itemDrag?.key === key && itemDrag.active;
             let rect = moving ? { left: itemDrag.x - SLOT_SIZE / 2, top: itemDrag.y - SLOT_SIZE / 2, width: SLOT_SIZE, height: SLOT_SIZE } : slot.getBoundingClientRect();
             if (!moving && open && listRect.height < SLOT_SIZE && rect.bottom > listRect.top && rect.top < listRect.bottom) {
@@ -121,7 +142,8 @@ export function installDock() {
     }
     function paint() {
         const view = viewport();
-        const layout = layoutDock({ ...view, ...position, open, count: items.length });
+        const count = bindings.size;
+        const layout = layoutDock({ ...view, ...position, open, count });
         const x = view.left + layout.hub.x;
         const y = view.top + layout.hub.y;
         const listX = x + (HUB_SIZE - SLOT_SIZE) / 2;
@@ -131,9 +153,9 @@ export function installDock() {
         hub.setAttribute('aria-expanded', String(open));
         Object.assign(rail.style, { left: `${Math.max(view.left, x - RAIL_PADDING)}px`, top: `${view.top + layout.columnTop - RAIL_PADDING}px`, width: `${HUB_SIZE + RAIL_PADDING * 2}px`, height: `${layout.columnHeight + RAIL_PADDING * 2}px` });
         rail.classList.toggle('closed', !open);
-        list.hidden = !open || !items.length;
+        list.hidden = !open || !count;
         Object.assign(list.style, { left: `${listX}px`, top: `${view.top + layout.listTop}px`, height: `${layout.listHeight}px` });
-        empty.hidden = !open || items.length > 0;
+        empty.hidden = !open || count > 0;
         Object.assign(empty.style, { left: `${listX}px`, top: `${view.top + layout.listTop}px`, height: `${Math.min(SLOT_SIZE, layout.listHeight)}px` });
         scheduleAlign();
     }
@@ -141,6 +163,7 @@ export function installDock() {
         const binding = bindings.get(key);
         if (!binding) return;
         binding.observer.disconnect();
+        if (itemDrag?.key === key) itemDrag = null;
         const slot = slots.get(key);
         if (slot) paintGlow(binding.control, slot, false);
         if (point && pointer && binding.compatibility?.nativeDrop) {
@@ -152,34 +175,48 @@ export function installDock() {
     function bindItems() {
         observer.disconnect();
         observer.observe(document.body, { childList: true, subtree: true });
-        for (const item of items) {
-            if (item.fingerprint.elementId !== 'bbi-app-host') continue;
-            const shadow = document.getElementById(item.fingerprint.elementId)?.shadowRoot;
-            if (shadow) observer.observe(shadow, { childList: true, subtree: true });
+        const claimedElements = new Set();
+        let availabilityChanged = false;
+        for (const [key, binding] of bindings) {
+            if (isSourceAvailable(binding.element, binding.control, binding, true)) claimedElements.add(binding.element);
+            else { release(key); availabilityChanged = true; }
         }
         for (const item of items) {
-            const old = bindings.get(item.key);
-            if (old?.element.isConnected) continue;
-            if (old) release(item.key);
-            const element = findTarget(item.fingerprint);
+            const id = item.fingerprint?.elementId;
+            const shadow = id ? document.getElementById(id)?.shadowRoot : null;
+            if (shadow) observer.observe(shadow, { childList: true, subtree: true });
+            if (bindings.has(item.key)) continue;
+            const element = item.fingerprint && findTarget(item.fingerprint);
             if (!element) continue;
+            const control = actionTarget(element);
+            if (!isSourceAvailable(element, control, null, true)) {
+                const attributes = { attributes: true, attributeFilter: ['hidden', 'style', 'class'] };
+                observer.observe(element, attributes);
+                if (control !== element) observer.observe(control, attributes);
+                continue;
+            }
+            if (claimedElements.has(element)) continue;
             const binding = holdTarget(element);
-            binding.observer = new MutationObserver(() => {
+            binding.observer = new MutationObserver(records => {
                 // Keep the original control's own position and visibility
                 // updates while the dock projects it elsewhere.
                 for (const key of binding.compatibility?.originalStyles || []) {
                     if (element.style.getPropertyPriority(key) === 'important') continue;
                     binding.prior.set(key, { value: element.style.getPropertyValue(key), priority: '' });
                 }
-                scheduleAlign();
+                const classChanged = records.some(record => record.attributeName === 'class');
+                if (isSourceAvailable(element, binding.control, binding, classChanged)) scheduleAlign();
+                else scheduleRebind();
             });
-            const attributes = { attributes: true, attributeFilter: ['style', 'class', 'aria-busy'] };
-            if (binding.compatibility?.elementId === 'tw-jm-reader') attributes.attributeFilter.push('hidden');
+            const attributes = { attributes: true, attributeFilter: ['style', 'class', 'aria-busy', 'hidden'] };
             binding.observer.observe(element, attributes);
             if (binding.control !== element) binding.observer.observe(binding.control, attributes);
             bindings.set(item.key, binding);
+            claimedElements.add(element);
+            availabilityChanged = true;
         }
-        for (const item of items) slots.get(item.key)?.classList.toggle('missing', !bindings.has(item.key));
+        for (const [key, slot] of slots) slot.hidden = !bindings.has(key);
+        if (availabilityChanged) renderManager();
         paint();
     }
     function saveItems() {
@@ -190,14 +227,16 @@ export function installDock() {
         list.replaceChildren();
         slots.clear();
         for (const item of items) {
+            if (slots.has(item.key)) continue;
             const slot = document.createElement('button');
             slot.type = 'button';
             slot.className = 'slot';
-            slot.title = item.name;
-            slot.setAttribute('aria-label', `打开${item.name}`);
+            const name = itemName(item);
+            slot.title = name;
+            slot.setAttribute('aria-label', `打开${name}`);
             const activate = async () => {
                 const binding = bindings.get(item.key);
-                if (!binding) { notify('暂时找不到这个悬浮球。请确认原球已显示，或在管理中移出后重新添加。', 'warning'); return; }
+                if (!binding || !isSourceAvailable(binding.element, binding.control, binding)) return;
                 // The slot owns the full hit area; activate the original
                 // plugin entry while its original control supplies the visual.
                 try {
@@ -262,10 +301,14 @@ export function installDock() {
     function add(element) {
         const value = fingerprint(element);
         const key = targetKey(value);
-        if (items.some(item => item.key === key)) { notify('这个悬浮球已经收纳了。'); return; }
+        if (bindingsHas(element) || items.some(item => item.key === key || item.fingerprint && findTarget(item.fingerprint) === element)) {
+            notify('这个悬浮球已经收纳了。'); return;
+        }
         const button = actionTarget(element);
-        const name = value.title || button.getAttribute('aria-label') || button.getAttribute('title') || value.elementId || '悬浮球';
-        items = [...items, { key, fingerprint: value, name: name.slice(0, 60) }];
+        const name = button.getAttribute('aria-label')?.trim() || button.getAttribute('title')?.trim();
+        const item = { key, fingerprint: value, name: value.title || name };
+        item.name = itemName(item).slice(0, 60);
+        items = [...items, item];
         open = true;
         saveItems();
     }
@@ -286,8 +329,15 @@ export function installDock() {
         if (!items.length) rows.textContent = '还没有收纳悬浮球。';
         for (const item of items) {
             const row = document.createElement('div'); row.className = 'manager-row';
-            const label = document.createElement('span'); label.textContent = item.name;
+            const name = itemName(item);
+            const { elementId, scriptId, classSelector } = item.fingerprint || {};
+            const source = [scriptId, elementId ? '#' + elementId : classSelector].filter(Boolean).join(' · ');
+            const label = document.createElement('span'); label.textContent = name;
+            const detail = document.createElement('small');
+            detail.textContent = [source, bindings.has(item.key) ? '' : '来源未显示'].filter(Boolean).join(' · ');
+            if (detail.textContent) label.append(detail);
             const button = document.createElement('button'); button.type = 'button'; button.textContent = '移出';
+            button.setAttribute('aria-label', `移出${name}`);
             button.addEventListener('click', () => remove(item.key));
             row.append(label, button); rows.append(row);
         }
@@ -306,7 +356,12 @@ export function installDock() {
         manager.showModal();
     }
 
-    const toggleHub = () => { if (dragged) { dragged = false; return; } open = !open; paint(); };
+    const toggleHub = () => {
+        if (dragged) { dragged = false; return; }
+        open = !open;
+        if (open) bindItems();
+        else paint();
+    };
     const cleanupPress = bindPressActions(hub, { click: toggleHub, hold: () => { hubHeld = true; showManager(); } });
     hub.addEventListener('pointerdown', event => {
         if (event.button !== 0) return;
@@ -411,13 +466,18 @@ export function installDock() {
     document.addEventListener('keydown', onKey);
     list.addEventListener('scroll', scheduleAlign, { passive: true });
     root.addEventListener('keydown', event => event.stopPropagation());
-    const observer = new MutationObserver(records => {
+    function scheduleRebind() {
+        if (rebindTimer) return;
+        rebindTimer = setTimeout(() => { rebindTimer = 0; bindItems(); }, 120);
+    }
+    const observer = new MutationObserver(() => {
         // Only missing/recreated selected nodes need lookup. Streaming changes
         // in the chat never require re-projecting every docked control.
-        if (!items.length || items.every(item => bindings.get(item.key)?.element.isConnected)) return;
-        if (!records.some(record => record.addedNodes.length || record.removedNodes.length)) return;
-        clearTimeout(rebindTimer);
-        rebindTimer = setTimeout(bindItems, 120);
+        if (!items.length || items.every(item => {
+            const binding = bindings.get(item.key);
+            return binding && isSourceAvailable(binding.element, binding.control, binding);
+        })) return;
+        scheduleRebind();
     });
     observer.observe(document.body, { childList: true, subtree: true });
     window.addEventListener('resize', paint);
@@ -427,7 +487,15 @@ export function installDock() {
     return {
         manage: showManager,
         pick,
-        reveal() { open = true; paint(); hub.focus({ preventScroll: true }); },
+        handleBack() {
+            if (manager?.open) { manager.close(); return true; }
+            if (picking) { pick(false); return true; }
+            if (!open) return false;
+            open = false;
+            paint();
+            return true;
+        },
+        reveal() { open = true; bindItems(); hub.focus({ preventScroll: true }); },
         destroy() {
             disposeManagerViewport?.(); disposeManagerViewport = null;
             manager?.close();

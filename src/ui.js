@@ -39,25 +39,13 @@ export function bindDialogViewport(dialog) {
     return () => { for (const [target, type] of listeners) target?.removeEventListener(type, sync); };
 }
 
-export function editDialog(text) {
-    const { host, root } = shadowHost('st-tools-editor');
-    const dialog = document.createElement('dialog');
-    dialog.innerHTML = '<h3>编辑文字</h3><p class="hint"></p><textarea aria-label="修改原文"></textarea><div class="actions"><button type="button" data-cancel>取消</button><button type="button" class="primary" data-save>应用修改</button></div>';
-    const input = dialog.querySelector('textarea');
-    input.value = text;
-    dialog.querySelector('.hint').textContent = '只修改当前选中的文字，其他内容保持原样。';
-    root.append(dialog);
-    document.body.append(host);
-    // Host hotkeys inspect document.activeElement, which is only the shadow
-    // host. Keep typing and Escape inside this editor's normal input flow.
-    root.addEventListener('keydown', event => event.stopPropagation());
-    return new Promise(resolve => {
-        let result = null;
-        dialog.querySelector('[data-save]').addEventListener('click', () => { result = input.value; dialog.close(); });
-        dialog.querySelector('[data-cancel]').addEventListener('click', () => dialog.close());
-        const disposeViewport = bindDialogViewport(dialog);
-        dialog.addEventListener('close', () => { disposeViewport(); host.remove(); resolve(result); }, { once: true });
-        dialog.showModal();
-        input.focus({ preventScroll: true });
+export function editDialog(context, text) {
+    const popup = new context.Popup('编辑内容', context.POPUP_TYPE.INPUT, text, {
+        rows: 4,
+        label: '编辑内容',
+        okButton: '应用修改',
+        cancelButton: '取消',
     });
+    popup.dlg.id = 'st-tools-editor';
+    return { result: popup.show(), dismiss: () => popup.completeCancelled() };
 }

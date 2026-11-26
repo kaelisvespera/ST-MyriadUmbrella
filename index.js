@@ -9,6 +9,7 @@ import { applyToast } from './src/toast.js';
 import { installTheme } from './src/theme.js';
 import { installPresetToggles } from './src/preset-toggles.js';
 import { installCharacterFolders } from './src/character-folders.js';
+import { installTauriBack } from './src/tauri-back.js';
 
 let sendReroll = null;
 let dock = null;
@@ -18,6 +19,7 @@ let cleanupTheme = null;
 let home = null;
 let cleanupPresetToggles = null;
 let cleanupCharacterFolders = null;
+let cleanupTauriBack = null;
 
 function apply() {
     const config = readConfig();
@@ -44,6 +46,7 @@ function init() {
         addDock: () => dock ? dock.pick() : notify('先勾选“悬浮球收纳”，再点选添加。'),
         revealDock: () => dock ? dock.reveal() : notify('先勾选“悬浮球收纳”，再显示收纳球。'),
     });
+    cleanupTauriBack = installTauriBack(() => home?.handleBack() || dock?.handleBack?.());
     registerCommands();
     void migrateQuickReplies().catch(error => { console.error('[千机伞] QR 集合更名失败', error); notify(error.message, 'warning'); });
     apply();
@@ -52,6 +55,7 @@ function init() {
 export function disable() {
     const ctx = getHost();
     ctx.eventSource.removeListener(ctx.eventTypes.APP_READY, init);
+    cleanupTauriBack?.(); cleanupTauriBack = null;
     cleanupCharacterFolders?.(); cleanupCharacterFolders = null;
     cleanupPresetToggles?.(); cleanupPresetToggles = null;
     sendReroll?.destroy(); sendReroll = null;
