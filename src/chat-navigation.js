@@ -35,6 +35,14 @@ function viewportTop(container) {
     return container.getBoundingClientRect().top + container.clientTop + padding;
 }
 
+function replyLeadIn(container) {
+    return Math.min(160, Math.max(24, container.clientHeight * 0.18));
+}
+
+function messageSelector(id) {
+    return `:scope > .mes[mesid="${id}"]`;
+}
+
 function currentMessage({ container }) {
     const top = viewportTop(container);
     const bottom = container.getBoundingClientRect().top + container.clientTop + container.clientHeight;
@@ -67,7 +75,7 @@ async function goToFloor(session, floor, { before = 0, behavior, isTarget = () =
     if (!Number.isSafeInteger(floor) || floor < 0 || floor >= context.chat.length) {
         throw new Error(`请输入 #0 到 #${context.chat.length - 1} 之间的整数楼层。`);
     }
-    const selector = `:scope > .mes[mesid="${floor}"]`;
+    const selector = messageSelector(floor);
     let row = container.querySelector(selector);
     if (!row) {
         if (context.SlashCommandParser?.commands?.['chat-jump'] && typeof context.executeSlashCommandsWithOptions === 'function') {
@@ -162,7 +170,12 @@ export function installReplyLocation() {
     const tauri = Boolean(globalThis.__TAURITAVERN_HOST__);
     let pending = null;
     let scrollFrame = 0;
+    let mediaTimer = 0;
+    let sendAnchor = null;
+    let sendFrame = 0;
     const hidden = () => document.visibilityState === 'hidden';
+    const nativeAutoScroll = () => tauri && getHost().powerUserSettings?.auto_scroll_chat_to_bottom === true;
+    const sentRows = new MutationObserver(onUserRowMounted);
     const layout = new ResizeObserver(locateWhenVisible);
     const content = new MutationObserver(locateWhenVisible);
     const veridis = observeVeridisRewrites({
@@ -183,8 +196,65 @@ export function installReplyLocation() {
     function stopLayoutWait() {
         cancelAnimationFrame(scrollFrame);
         scrollFrame = 0;
+        clearTimeout(mediaTimer);
+        mediaTimer = 0;
         layout.disconnect();
         content.disconnect();
+    }
+
+    function clearSendAnchor() {
+        sendAnchor = null;
+        cancelAnimationFrame(sendFrame);
+        sendFrame = 0;
+        sentRows.disconnect();
+    }
+
+    function captureSendAnchor(session) {
+        if (!session || hidden() || !nativeAutoScroll()) return;
+        const { context: { chat }, container } = session;
+        const nextId = chat.length;
+        if (sendAnchor?.nextId === nextId && isSameChat(sendAnchor.session)) return;
+        clearSendAnchor();
+        const previous = chat[nextId - 1];
+        if (!previous || previous.is_user || previous.is_system) return;
+        const row = container.querySelector(messageSelector(nextId - 1));
+        if (!row || !container.clientHeight) return;
+        sendAnchor = { session, nextId, previous, offset: row.getBoundingClientRect().top - viewportTop(container) };
+    }
+
+    function onUserMessageSent(id) {
+        const anchor = sendAnchor;
+        if (!anchor || Number(id) !== anchor.nextId || !isSameChat(anchor.session)) return;
+        const message = anchor.session.context.chat[anchor.nextId];
+        if (!message?.is_user) return;
+        anchor.message = message;
+        sentRows.observe(anchor.session.container, { childList: true });
+        onUserRowMounted();
+    }
+
+    function onUserRowMounted() {
+        const anchor = sendAnchor;
+        if (!anchor?.message || sendFrame) return;
+        const { session, nextId, previous, offset, message } = anchor;
+        const { container, context: { chat } } = session;
+        if (!container.querySelector(messageSelector(nextId))) return;
+        sentRows.disconnect();
+        // TT appends the user row and queues its first bottom scroll in the
+        // same task. Adjust only that frame, before any assistant row arrives.
+        sendFrame = requestAnimationFrame(() => {
+            clearSendAnchor();
+            if (hidden() || !nativeAutoScroll() || !isSameChat(session)
+                || chat.length !== nextId + 1 || chat[nextId] !== message || chat[nextId - 1] !== previous) return;
+            const row = container.querySelector(messageSelector(nextId - 1));
+            if (!row) return;
+            const bottom = Math.max(0, container.scrollHeight - container.clientHeight);
+            if (Math.abs(container.scrollTop - bottom) > 1) return;
+            const top = row.getBoundingClientRect().top - viewportTop(container);
+            const leadIn = replyLeadIn(container);
+            if (Math.abs(top) > leadIn || Math.abs(top - offset) < leadIn) return;
+            const restored = Math.max(0, Math.min(bottom, container.scrollTop + top - offset));
+            if (Math.abs(restored - container.scrollTop) > 1) scrollTo(session, restored, 'instant');
+        });
     }
 
     function reset() {
@@ -207,6 +277,8 @@ export function installReplyLocation() {
             if (!session) return;
             pending = { session, groupOpen: false, ended: false, cancelled: false, queued: false };
         }
+        if (kind === 'normal') captureSendAnchor(pending.session);
+        else clearSendAnchor();
         const chat = pending.session.context.chat;
         const tail = chat.at(-1);
         pending.firstNewFloor = chat.length;
@@ -228,6 +300,7 @@ export function installReplyLocation() {
 
     function cancel() {
         veridis.clear();
+        clearSendAnchor();
         const run = pending;
         if (!run || run.cancelled) return;
         if (run.firstNewFloor == null) { reset(); return; }
@@ -246,7 +319,7 @@ export function installReplyLocation() {
 
     function locateWhenVisible() {
         const run = pending;
-        if (!run?.idle || !current(run) || hidden() || scrollFrame || run.locating) return;
+        if (!run?.idle || !current(run) || hidden() || scrollFrame || mediaTimer || run.locating) return;
         // TT can restore viewport size and then reproject ChatSurface on resume.
         scrollFrame = requestAnimationFrame(() => {
             scrollFrame = requestAnimationFrame(() => {
@@ -259,17 +332,27 @@ export function installReplyLocation() {
                     && (reply.isRewritten ? reply.isRewritten() : chat.findLastIndex(message => message?.is_user) < reply.id);
                 if (!isTarget()) { reset(); return; }
                 if (!container.clientHeight) { layout.observe(container); return; }
-                const row = container.querySelector(`:scope > .mes[mesid="${reply.id}"]`);
+                const row = container.querySelector(messageSelector(reply.id));
                 if (row && !row.getBoundingClientRect().height) { layout.observe(row); return; }
                 if (reply.isRewritten && row && (row.style.visibility === 'hidden' || row.querySelector('.mes_text[aria-busy="true"]'))) {
                     content.observe(row, { attributes: true, attributeFilter: ['style', 'aria-busy'], childList: true, subtree: true });
+                    return;
+                }
+                if (nativeAutoScroll() && reply.message.extra?.media?.length && run.mediaReady !== reply) {
+                    // TT 2.4 publishes attached media and compensates scroll
+                    // after a load-or-200ms race. Let it finish before aligning.
+                    mediaTimer = setTimeout(() => {
+                        mediaTimer = 0;
+                        run.mediaReady = reply;
+                        locateWhenVisible();
+                    }, 200);
                     return;
                 }
 
                 layout.disconnect();
                 content.disconnect();
                 run.locating = true;
-                const before = Math.min(160, Math.max(24, container.clientHeight * 0.18));
+                const before = replyLeadIn(container);
                 void goToFloor(session, reply.id, { before, behavior: 'instant', isTarget })
                     .catch(error => { if (isTarget()) console.warn('[千机伞] 定位新消息失败', error); })
                     .finally(() => {
@@ -315,6 +398,7 @@ export function installReplyLocation() {
     }
 
     function end() {
+        clearSendAnchor();
         if (!pending) return;
         pending.ended = true;
         ready();
@@ -328,12 +412,19 @@ export function installReplyLocation() {
 
     function leaveReply() {
         veridis.clear();
+        clearSendAnchor();
         reset();
+    }
+
+    function sendIntent() {
+        leaveReply();
+        if (tauri) captureSendAnchor(chatSession());
     }
 
     const listeners = [
         [eventTypes.GENERATION_STARTED, start],
         [eventTypes.CHARACTER_MESSAGE_RENDERED, render],
+        [eventTypes.MESSAGE_SENT, onUserMessageSent],
         [eventTypes.GENERATION_ENDED, end],
         [eventTypes.GENERATION_STOPPED, cancel],
         [eventTypes.GROUP_WRAPPER_STARTED, startGroup],
@@ -342,7 +433,7 @@ export function installReplyLocation() {
     ].filter(([type]) => type);
     for (const [type, listener] of listeners) eventSource.on(type, listener);
     document.addEventListener('visibilitychange', () => {
-        if (hidden()) stopLayoutWait();
+        if (hidden()) { clearSendAnchor(); stopLayoutWait(); }
         else locateWhenVisible();
     }, { signal: input.signal });
     window.addEventListener('pageshow', locateWhenVisible, { signal: input.signal });
@@ -351,7 +442,7 @@ export function installReplyLocation() {
     };
     document.addEventListener('click', event => {
         // Cancel a previous reply's queued jump before the host's async send.
-        if (event.isTrusted && event.target.closest?.('#send_but')) leaveReply();
+        if (event.isTrusted && event.target.closest?.('#send_but,[data-tt-chat-input-editor-action="send"]')) sendIntent();
     }, { capture: true, signal: input.signal });
     for (const type of ['wheel', 'touchmove']) {
         document.addEventListener(type, interrupt, { capture: true, passive: true, signal: input.signal });
@@ -361,14 +452,14 @@ export function installReplyLocation() {
             && !event.isComposing && event.keyCode !== 229 && !event.shiftKey && !event.ctrlKey && !event.altKey) {
             const context = getHost();
             const mode = context.powerUserSettings?.send_on_enter ?? 0;
-            if (mode === 1 || (mode === 0 && !isMobile(context))) leaveReply();
+            if (mode === 1 || (mode === 0 && !isMobile(context))) sendIntent();
         }
         if (['PageUp', 'PageDown', 'ArrowUp', 'ArrowDown', 'Home', 'End', ' '].includes(event.key)
             && !event.target.closest?.('button, input, textarea, select, [contenteditable]')) interrupt(event);
     }, { capture: true, signal: input.signal });
 
     return () => {
-        reset();
+        leaveReply();
         veridis.destroy();
         input.abort();
         for (const [type, listener] of listeners) eventSource.removeListener(type, listener);
