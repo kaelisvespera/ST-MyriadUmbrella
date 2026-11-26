@@ -39,7 +39,7 @@ export function bindDialogViewport(dialog) {
     return () => { for (const [target, type] of listeners) target?.removeEventListener(type, sync); };
 }
 
-export function editDialog(context, text) {
+export function editDialog(context, text, fromTouch = false) {
     const popup = new context.Popup('编辑内容', context.POPUP_TYPE.INPUT, text, {
         rows: 4,
         label: '编辑内容',
@@ -47,5 +47,6 @@ export function editDialog(context, text) {
         cancelButton: '取消',
     });
     popup.dlg.id = 'st-tools-editor';
+    if (fromTouch) popup.dlg.classList.add('st-tools-touch-edit');
     return { result: popup.show(), dismiss: () => popup.completeCancelled() };
 }

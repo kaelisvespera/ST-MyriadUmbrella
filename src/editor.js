@@ -146,6 +146,7 @@ export function installEditor() {
         #chat .mes_text { touch-action: manipulation; }
         #chat .mes_text hr { position: relative; cursor: pointer; overflow: visible; }
         #chat .mes_text hr::after { content: ""; position: absolute; inset: -15px 0; }
+        #st-tools-editor.st-tools-touch-edit .popup-content { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
         #st-tools-editor .popup-input { min-height: 50px; max-height: 155px; field-sizing: content; resize: none; overflow-y: auto; }
     `;
     document.head.append(style);
@@ -163,7 +164,7 @@ export function installEditor() {
     let lastTouchAt = -Infinity;
     let mouseSelection = null;
 
-    const edit = async (event, selection, fromTouch = false) => {
+    const edit = async (event, selection, touch = null) => {
         const target = targetElement(event);
         const container = target?.closest('.mes_text');
         const row = container?.closest('.mes[mesid]');
@@ -187,7 +188,7 @@ export function installEditor() {
 
         let span;
         try {
-            span = locateEdit(event, target, container, selection, context, message, index, raw);
+            span = locateEdit(touch ?? event, target, container, selection, context, message, index, raw);
         } catch (error) {
             console.error('[千机伞] 定位正文失败', error);
         }
@@ -220,7 +221,7 @@ export function installEditor() {
         for (const name of scrollEvents) chat.addEventListener(name, markScroll, { passive: true });
 
         try {
-            dialog = editDialog(context, span.text);
+            dialog = editDialog(context, span.text, touch !== null);
             const text = await dialog.result;
             dialog = null;
             if (disposed || typeof text !== 'string' || text === span.text) return;
@@ -235,7 +236,7 @@ export function installEditor() {
             console.error('[千机伞] 编辑失败', error);
             if (!disposed) notify(error.message || '文字修改未能完成，请重新打开编辑。', 'error');
         } finally {
-            if (fromTouch && !disposed && isCurrent()) {
+            if (touch && !disposed && isCurrent()) {
                 // The native keyboard may still be settling after the popup closes.
                 await new Promise(resolve => setTimeout(resolve, 300));
             }
@@ -266,49 +267,59 @@ export function installEditor() {
     };
     const cancel = () => { gesture = null; taps = []; mouseSelection = null; };
     const down = event => {
-        if (event.pointerType !== 'touch') return;
         lastTouchAt = performance.now();
         const target = targetElement(event);
         const container = target?.closest('.mes_text');
-        if (editing || !container || event.isPrimary === false || target.closest(EDIT_CONTROLS)) {
+        if (editing || !container || event.touches.length !== 1 || target.closest(EDIT_CONTROLS)) {
             cancel();
             return;
         }
+        const touch = event.touches[0];
         gesture = {
-            id: event.pointerId,
-            x: event.clientX, y: event.clientY,
+            id: touch.identifier,
+            x: touch.clientX, y: touch.clientY,
             time: lastTouchAt, scrollTop: chat.scrollTop,
             container, selection: selectedRange(),
         };
     };
     const move = event => {
-        if (gesture?.id === event.pointerId && Math.hypot(event.clientX - gesture.x, event.clientY - gesture.y) > 15) cancel();
+        lastTouchAt = performance.now();
+        if (!gesture) return;
+        const touch = event.touches[0];
+        if (event.touches.length !== 1 || touch.identifier !== gesture.id
+            || Math.hypot(touch.clientX - gesture.x, touch.clientY - gesture.y) > 15) cancel();
     };
     const up = event => {
-        if (event.pointerType === 'touch') lastTouchAt = performance.now();
-        if (!gesture || gesture.id !== event.pointerId) return;
+        lastTouchAt = performance.now();
+        if (!gesture) return;
+        const touch = Array.from(event.changedTouches).find(item => item.identifier === gesture.id);
+        if (event.touches.length || !touch) {
+            cancel();
+            return;
+        }
         const { container, time, x, y, selection, scrollTop } = gesture;
         gesture = null;
         if (lastTouchAt - time > 500 || Math.abs(chat.scrollTop - scrollTop) > 2
             || targetElement(event)?.closest('.mes_text') !== container
-            || Math.hypot(x - event.clientX, y - event.clientY) > 15) {
+            || Math.hypot(x - touch.clientX, y - touch.clientY) > 15) {
             cancel();
             return;
         }
         const last = taps.at(-1);
         if (last && (lastTouchAt - last.time > 450 || last.container !== container
             || Math.abs(last.scrollTop - scrollTop) > 2
-            || Math.hypot(last.x - event.clientX, last.y - event.clientY) > 35)) taps = [];
-        taps.push({ time: lastTouchAt, x: event.clientX, y: event.clientY, container, selection, scrollTop });
+            || Math.hypot(last.x - touch.clientX, last.y - touch.clientY) > 35)) taps = [];
+        taps.push({ time: lastTouchAt, x: touch.clientX, y: touch.clientY, container, selection, scrollTop });
         if (taps.length === 3) {
             const chosen = taps[0].selection;
             taps = [];
-            void edit(event, chosen, true);
+            // Cancel the actual touchend before opening the dialog to suppress its follow-up click.
+            void edit(event, chosen, touch);
         }
     };
 
-    const bindings = { mousedown: mouseDown, dblclick: doubleClick, pointerdown: down, pointermove: move, pointerup: up, pointercancel: cancel };
-    for (const [name, handler] of Object.entries(bindings)) chat.addEventListener(name, handler);
+    const bindings = { mousedown: mouseDown, dblclick: doubleClick, touchstart: down, touchmove: move, touchend: up, touchcancel: cancel };
+    for (const [name, handler] of Object.entries(bindings)) chat.addEventListener(name, handler, name === 'touchend' ? { passive: false } : undefined);
     return () => {
         disposed = true;
         activeCleanup?.();
