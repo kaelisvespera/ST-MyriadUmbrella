@@ -3,7 +3,7 @@
   "loading_order": 200,
   "requires": [],
   "optional": [],
-  "js": "src/runtime.bundle.js?v=20261126.frontend-0.1.10",
+  "js": "src/runtime.bundle.js?v=20261126.frontend-0.1.10-r1",
   "author": "Atonal",
   "version": "0.1.10",
   "auto_update": false,

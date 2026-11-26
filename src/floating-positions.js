@@ -67,6 +67,7 @@ export function installFloatingPositions() {
     const writtenStyles = new WeakMap();
     const pending = new Map();
     const listeners = new AbortController();
+    const sizes = new ResizeObserver(refresh);
     let frame = 0;
     let gesture = null;
 
@@ -77,6 +78,11 @@ export function installFloatingPositions() {
             const view = viewport();
             for (const [key, saved] of positions) {
                 const element = resolve(saved.fingerprint);
+                const previous = targets.get(key);
+                if (previous !== element) {
+                    if (previous) sizes.unobserve(previous);
+                    if (element) sizes.observe(element);
+                }
                 targets.set(key, element);
                 const host = saved.fingerprint.elementId && document.getElementById(saved.fingerprint.elementId);
                 if (host?.shadowRoot) watch(host.shadowRoot, { childList: true, subtree: true });
@@ -102,7 +108,8 @@ export function installFloatingPositions() {
         observer.observe(node, options);
     }
     watch(document.body, { childList: true, subtree: true });
-    watch(document.documentElement, { attributes: true, attributeFilter: ['class', 'hidden'] });
+    // 构画 and 两三事 mount beside the body; a shadow stylesheet can size the ball later.
+    watch(document.documentElement, { childList: true, attributes: true, attributeFilter: ['class', 'hidden'] });
 
     function rememberDrop(element, previous) {
         if (pending.has(element)) cancelAnimationFrame(pending.get(element));
@@ -168,6 +175,7 @@ export function installFloatingPositions() {
         destroy() {
             listeners.abort();
             observer.disconnect();
+            sizes.disconnect();
             cancelAnimationFrame(frame);
             for (const job of pending.values()) cancelAnimationFrame(job);
             nativeTouchStyle.remove();

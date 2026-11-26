@@ -176,6 +176,7 @@ export function installDock({ onDrop } = {}) {
     function bindItems() {
         observer.disconnect();
         observer.observe(document.body, { childList: true, subtree: true });
+        observer.observe(document.documentElement, { childList: true });
         const claimedElements = new Set();
         let availabilityChanged = false;
         for (const [key, binding] of bindings) {
@@ -481,6 +482,7 @@ export function installDock({ onDrop } = {}) {
         scheduleRebind();
     });
     observer.observe(document.body, { childList: true, subtree: true });
+    observer.observe(document.documentElement, { childList: true });
     window.addEventListener('resize', paint);
     window.visualViewport?.addEventListener('resize', paint);
     window.visualViewport?.addEventListener('scroll', paint);
