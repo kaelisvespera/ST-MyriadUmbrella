@@ -1,4 +1,5 @@
 import { getHost, notify } from './host.js';
+import { observeVeridisRewrites } from './veridis-rewrite.js';
 
 // Navigation behavior follows Junezz's 回顶/回底 v1.1.
 const commands = [
@@ -163,11 +164,27 @@ export function installReplyLocation() {
     let scrollFrame = 0;
     const hidden = () => document.visibilityState === 'hidden';
     const layout = new ResizeObserver(locateWhenVisible);
+    const content = new MutationObserver(locateWhenVisible);
+    const veridis = observeVeridisRewrites({
+        capture: details => details.generationId && pending?.cancelled && isSameChat(pending.session) ? null : chatSession(),
+        isSameChat,
+        onRewrite(session, reply) {
+            if (pending?.reply?.message === reply.message && !pending.locating && current(pending)) {
+                pending.reply = reply;
+            } else {
+                if (pending?.groupOpen) return;
+                reset();
+                pending = { session, reply, ended: true };
+            }
+            ready();
+        },
+    });
 
     function stopLayoutWait() {
         cancelAnimationFrame(scrollFrame);
         scrollFrame = 0;
         layout.disconnect();
+        content.disconnect();
     }
 
     function reset() {
@@ -183,6 +200,7 @@ export function installReplyLocation() {
     function start(type, options, dryRun) {
         const kind = type ?? 'normal';
         if (dryRun || !generatedReplyTypes.has(kind)) return;
+        veridis.clear();
         if (!(pending?.groupOpen || pending?.cancelledUntilIdle) || !isSameChat(pending.session)) {
             reset();
             const session = chatSession();
@@ -209,8 +227,10 @@ export function installReplyLocation() {
     }
 
     function cancel() {
+        veridis.clear();
         const run = pending;
         if (!run || run.cancelled) return;
+        if (run.firstNewFloor == null) { reset(); return; }
         run.cancelled = true;
         stopLayoutWait();
         if (tauri && !run.groupOpen) {
@@ -236,13 +256,18 @@ export function installReplyLocation() {
                 const { chat } = session.context;
                 const { container } = session;
                 const isTarget = () => current(run) && !hidden() && chat[reply.id] === reply.message
-                    && chat.findLastIndex(message => message?.is_user) < reply.id;
+                    && (reply.isRewritten ? reply.isRewritten() : chat.findLastIndex(message => message?.is_user) < reply.id);
                 if (!isTarget()) { reset(); return; }
                 if (!container.clientHeight) { layout.observe(container); return; }
                 const row = container.querySelector(`:scope > .mes[mesid="${reply.id}"]`);
                 if (row && !row.getBoundingClientRect().height) { layout.observe(row); return; }
+                if (reply.isRewritten && row && (row.style.visibility === 'hidden' || row.querySelector('.mes_text[aria-busy="true"]'))) {
+                    content.observe(row, { attributes: true, attributeFilter: ['style', 'aria-busy'], childList: true, subtree: true });
+                    return;
+                }
 
                 layout.disconnect();
+                content.disconnect();
                 run.locating = true;
                 const before = Math.min(160, Math.max(24, container.clientHeight * 0.18));
                 void goToFloor(session, reply.id, { before, behavior: 'instant', isTarget })
@@ -272,7 +297,7 @@ export function installReplyLocation() {
 
     function render(id, type) {
         const run = pending;
-        if (!run || !current(run) || id == null || !generatedReplyTypes.has(type ?? 'normal')) return;
+        if (run?.firstNewFloor == null || !current(run) || id == null || !generatedReplyTypes.has(type ?? 'normal')) return;
         const floor = Number(id);
         const message = run.session.context.chat[floor];
         if (!Number.isSafeInteger(floor) || floor < 0 || !message || message.is_user || message.is_system) return;
@@ -282,6 +307,7 @@ export function installReplyLocation() {
                 || (message === tail.message && message.mes === tail.text && message.gen_finished === tail.finished)) return;
         }
         if (run.reply && floor < run.reply.id) return;
+        if (run.reply?.message === message && run.reply.isRewritten?.()) return;
         const stream = tauri ? getHost().streamingProcessor : null;
         if (stream?.isStopped && stream.messageId === floor && stream.timeStarted === message.gen_started) return;
         run.reply = { id: floor, message };
@@ -300,6 +326,11 @@ export function installReplyLocation() {
         end();
     }
 
+    function leaveReply() {
+        veridis.clear();
+        reset();
+    }
+
     const listeners = [
         [eventTypes.GENERATION_STARTED, start],
         [eventTypes.CHARACTER_MESSAGE_RENDERED, render],
@@ -307,7 +338,7 @@ export function installReplyLocation() {
         [eventTypes.GENERATION_STOPPED, cancel],
         [eventTypes.GROUP_WRAPPER_STARTED, startGroup],
         [eventTypes.GROUP_WRAPPER_FINISHED, endGroup],
-        [eventTypes.CHAT_CHANGED, reset],
+        [eventTypes.CHAT_CHANGED, leaveReply],
     ].filter(([type]) => type);
     for (const [type, listener] of listeners) eventSource.on(type, listener);
     document.addEventListener('visibilitychange', () => {
@@ -316,21 +347,21 @@ export function installReplyLocation() {
     }, { signal: input.signal });
     window.addEventListener('pageshow', locateWhenVisible, { signal: input.signal });
     const interrupt = event => {
-        if (!hidden() && pending?.session.container.contains(event.target)) cancel();
+        if (!hidden() && event.target.closest?.('#chat')) cancel();
     };
     document.addEventListener('click', event => {
         // Cancel a previous reply's queued jump before the host's async send.
-        if (pending && event.isTrusted && event.target.closest?.('#send_but')) reset();
+        if (event.isTrusted && event.target.closest?.('#send_but')) leaveReply();
     }, { capture: true, signal: input.signal });
     for (const type of ['wheel', 'touchmove']) {
         document.addEventListener(type, interrupt, { capture: true, passive: true, signal: input.signal });
     }
     document.addEventListener('keydown', event => {
-        if (pending && event.isTrusted && event.target.id === 'send_textarea' && event.key === 'Enter'
+        if (event.isTrusted && event.target.id === 'send_textarea' && event.key === 'Enter'
             && !event.isComposing && event.keyCode !== 229 && !event.shiftKey && !event.ctrlKey && !event.altKey) {
             const context = getHost();
             const mode = context.powerUserSettings?.send_on_enter ?? 0;
-            if (mode === 1 || (mode === 0 && !isMobile(context))) reset();
+            if (mode === 1 || (mode === 0 && !isMobile(context))) leaveReply();
         }
         if (['PageUp', 'PageDown', 'ArrowUp', 'ArrowDown', 'Home', 'End', ' '].includes(event.key)
             && !event.target.closest?.('button, input, textarea, select, [contenteditable]')) interrupt(event);
@@ -338,6 +369,7 @@ export function installReplyLocation() {
 
     return () => {
         reset();
+        veridis.destroy();
         input.abort();
         for (const [type, listener] of listeners) eventSource.removeListener(type, listener);
     };
