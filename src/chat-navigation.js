@@ -163,6 +163,11 @@ export function registerChatNavigationCommands(context = getHost()) {
 }
 
 const generatedReplyTypes = new Set(['normal', 'continue', 'regenerate', 'swipe', 'append', 'appendFinal']);
+const sendControl = '#send_but,[data-tt-chat-input-editor-action="send"]';
+
+function hasReplyContent(value) {
+    return /[^.\u2026\s]/.test(String(value ?? ''));
+}
 
 export function installReplyLocation() {
     const { eventSource, eventTypes } = getHost();
@@ -172,10 +177,13 @@ export function installReplyLocation() {
     let scrollFrame = 0;
     let mediaTimer = 0;
     let sendAnchor = null;
+    let pointerAnchor = null;
     let sendFrame = 0;
+    let chatTouch = null;
     const hidden = () => document.visibilityState === 'hidden';
     const nativeAutoScroll = () => tauri && getHost().powerUserSettings?.auto_scroll_chat_to_bottom === true;
-    const sentRows = new MutationObserver(onUserRowMounted);
+    const sentRows = new MutationObserver(scheduleSendCheck);
+    const sendLayout = new ResizeObserver(scheduleSendCheck);
     const layout = new ResizeObserver(locateWhenVisible);
     const content = new MutationObserver(locateWhenVisible);
     const veridis = observeVeridisRewrites({
@@ -203,23 +211,41 @@ export function installReplyLocation() {
     }
 
     function clearSendAnchor() {
+        sendAnchor?.listeners?.abort();
         sendAnchor = null;
         cancelAnimationFrame(sendFrame);
         sendFrame = 0;
         sentRows.disconnect();
+        sendLayout.disconnect();
     }
 
-    function captureSendAnchor(session) {
-        if (!session || hidden() || !nativeAutoScroll()) return;
+    function readSendAnchor(session) {
+        if (!session || hidden() || !nativeAutoScroll()) return null;
         const { context: { chat }, container } = session;
         const nextId = chat.length;
+        const previous = chat[nextId - 1];
+        if (!previous || previous.is_user || previous.is_system) return null;
+        const row = container.querySelector(messageSelector(nextId - 1));
+        if (!row || !container.clientHeight) return null;
+        return { session, nextId, previous, scrollTop: container.scrollTop,
+            height: container.clientHeight, offset: row.getBoundingClientRect().top - viewportTop(container) };
+    }
+
+    function captureSendAnchor(session, beforePointerFocus = null) {
+        if (!session) return;
+        const nextId = session.context.chat.length;
         if (sendAnchor?.nextId === nextId && isSameChat(sendAnchor.session)) return;
         clearSendAnchor();
-        const previous = chat[nextId - 1];
-        if (!previous || previous.is_user || previous.is_system) return;
-        const row = container.querySelector(messageSelector(nextId - 1));
-        if (!row || !container.clientHeight) return;
-        sendAnchor = { session, nextId, previous, offset: row.getBoundingClientRect().top - viewportTop(container) };
+        const anchor = beforePointerFocus?.nextId === nextId && isSameChat(beforePointerFocus.session)
+            ? beforePointerFocus : readSendAnchor(session);
+        if (!anchor) return;
+        sendAnchor = anchor;
+        const { container } = anchor.session;
+        anchor.listeners = new AbortController();
+        container.addEventListener('scroll', scheduleSendCheck, { passive: true, signal: anchor.listeners.signal });
+        sentRows.observe(container, { childList: true, subtree: true, characterData: true });
+        sendLayout.observe(container);
+        scheduleSendCheck();
     }
 
     function onUserMessageSent(id) {
@@ -228,33 +254,57 @@ export function installReplyLocation() {
         const message = anchor.session.context.chat[anchor.nextId];
         if (!message?.is_user) return;
         anchor.message = message;
-        sentRows.observe(anchor.session.container, { childList: true });
-        onUserRowMounted();
+        scheduleSendCheck();
     }
 
-    function onUserRowMounted() {
+    function scheduleSendCheck() {
+        if (sendAnchor && !sendFrame && !hidden()) sendFrame = requestAnimationFrame(checkSendAnchor);
+    }
+
+    function checkSendAnchor() {
+        sendFrame = 0;
         const anchor = sendAnchor;
-        if (!anchor?.message || sendFrame) return;
+        if (!anchor || hidden()) return;
         const { session, nextId, previous, offset, message } = anchor;
         const { container, context: { chat } } = session;
-        if (!container.querySelector(messageSelector(nextId))) return;
-        sentRows.disconnect();
-        // TT appends the user row and queues its first bottom scroll in the
-        // same task. Adjust only that frame, before any assistant row arrives.
-        sendFrame = requestAnimationFrame(() => {
+        const reply = chat[nextId + 1];
+        if (!nativeAutoScroll() || !isSameChat(session) || chat[nextId - 1] !== previous
+            || (message && chat[nextId] !== message) || chat.length > nextId + 2 || reply?.is_user || reply?.is_system) {
             clearSendAnchor();
-            if (hidden() || !nativeAutoScroll() || !isSameChat(session)
-                || chat.length !== nextId + 1 || chat[nextId] !== message || chat[nextId - 1] !== previous) return;
-            const row = container.querySelector(messageSelector(nextId - 1));
-            if (!row) return;
-            const bottom = Math.max(0, container.scrollHeight - container.clientHeight);
-            if (Math.abs(container.scrollTop - bottom) > 1) return;
-            const top = row.getBoundingClientRect().top - viewportTop(container);
-            const leadIn = replyLeadIn(container);
-            if (Math.abs(top) > leadIn || Math.abs(top - offset) < leadIn) return;
-            const restored = Math.max(0, Math.min(bottom, container.scrollTop + top - offset));
-            if (Math.abs(restored - container.scrollTop) > 1) scrollTo(session, restored, 'instant');
-        });
+            return;
+        }
+        const height = container.clientHeight;
+        if (!height) return;
+        const replyBody = reply && container.querySelector(messageSelector(nextId + 1))?.querySelector('.mes_text');
+        if (replyBody && (hasReplyContent(replyBody.textContent) || replyBody.querySelector('img, video, iframe, audio'))) {
+            clearSendAnchor();
+            // Restoring the viewport can engage TT's private scroll lock.
+            // Once real output is rendered, the native bottom call resumes follow.
+            if (anchor.restored) getHost().scrollChatToBottom?.({ waitForFrame: true });
+            return;
+        }
+        if (!message && height === anchor.height) return;
+        const start = viewportTop(container);
+        const previousRow = container.querySelector(messageSelector(nextId - 1));
+        const previousTop = previousRow ? previousRow.getBoundingClientRect().top - start
+            : anchor.scrollTop + offset - container.scrollTop;
+        const userRow = reply && container.querySelector(messageSelector(nextId));
+        const userTop = userRow ? userRow.getBoundingClientRect().top - start : Infinity;
+        // The old floor can still fill most of the viewport even if its first
+        // pixels are clipped. Keep guarding through the empty assistant row.
+        if (Math.abs(previousTop) >= height && Math.abs(userTop) >= height) {
+            if (message && !reply && !anchor.restored) {
+                anchor.offset = previousTop;
+                anchor.scrollTop = container.scrollTop;
+            }
+            return;
+        }
+        const bottom = Math.max(0, container.scrollHeight - height);
+        const restored = Math.max(0, Math.min(bottom, container.scrollTop + previousTop - offset));
+        if (Math.abs(restored - container.scrollTop) > 1) {
+            anchor.restored = true;
+            scrollTo(session, restored, 'instant');
+        }
     }
 
     function reset() {
@@ -317,6 +367,20 @@ export function installReplyLocation() {
         return pending === run && !run.cancelled && !run.signal?.aborted && isSameChat(run.session);
     }
 
+    async function confirmFinalPosition(session, id, before, isTarget) {
+        if (!nativeAutoScroll()) return;
+        await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        if (!isTarget() || !nativeAutoScroll()) return;
+        const { container } = session;
+        const row = container.querySelector(messageSelector(id));
+        if (!row || !row.getBoundingClientRect().height || !container.clientHeight) return;
+        const target = container.scrollTop + row.getBoundingClientRect().top - viewportTop(container) - before;
+        const bottom = Math.max(0, container.scrollHeight - container.clientHeight);
+        const clamped = Math.max(0, Math.min(bottom, target));
+        // A native follow frame may still land after the first alignment.
+        if (Math.abs(container.scrollTop - clamped) > 2) scrollTo(session, clamped, 'instant');
+    }
+
     function locateWhenVisible() {
         const run = pending;
         if (!run?.idle || !current(run) || hidden() || scrollFrame || mediaTimer || run.locating) return;
@@ -328,7 +392,7 @@ export function installReplyLocation() {
                 const { session, reply } = run;
                 const { chat } = session.context;
                 const { container } = session;
-                const isTarget = () => current(run) && !hidden() && chat[reply.id] === reply.message
+                const isTarget = () => current(run) && !hidden() && run.reply === reply && chat[reply.id] === reply.message
                     && (reply.isRewritten ? reply.isRewritten() : chat.findLastIndex(message => message?.is_user) < reply.id);
                 if (!isTarget()) { reset(); return; }
                 if (!container.clientHeight) { layout.observe(container); return; }
@@ -354,6 +418,7 @@ export function installReplyLocation() {
                 run.locating = true;
                 const before = replyLeadIn(container);
                 void goToFloor(session, reply.id, { before, behavior: 'instant', isTarget })
+                    .then(() => confirmFinalPosition(session, reply.id, before, isTarget))
                     .catch(error => { if (isTarget()) console.warn('[千机伞] 定位新消息失败', error); })
                     .finally(() => {
                         if (pending !== run) return;
@@ -390,7 +455,7 @@ export function installReplyLocation() {
                 || (message === tail.message && message.mes === tail.text && message.gen_finished === tail.finished)) return;
         }
         if (run.reply && floor < run.reply.id) return;
-        if (run.reply?.message === message && run.reply.isRewritten?.()) return;
+        if (run.reply?.message === message && run.reply.id === floor) return;
         const stream = tauri ? getHost().streamingProcessor : null;
         if (stream?.isStopped && stream.messageId === floor && stream.timeStarted === message.gen_started) return;
         run.reply = { id: floor, message };
@@ -413,12 +478,13 @@ export function installReplyLocation() {
     function leaveReply() {
         veridis.clear();
         clearSendAnchor();
+        pointerAnchor = null;
         reset();
     }
 
-    function sendIntent() {
+    function sendIntent(beforePointerFocus = null) {
         leaveReply();
-        if (tauri) captureSendAnchor(chatSession());
+        if (tauri) captureSendAnchor(chatSession(), beforePointerFocus);
     }
 
     const listeners = [
@@ -433,19 +499,50 @@ export function installReplyLocation() {
     ].filter(([type]) => type);
     for (const [type, listener] of listeners) eventSource.on(type, listener);
     document.addEventListener('visibilitychange', () => {
-        if (hidden()) { clearSendAnchor(); stopLayoutWait(); }
-        else locateWhenVisible();
+        chatTouch = null;
+        if (hidden()) {
+            cancelAnimationFrame(sendFrame);
+            sendFrame = 0;
+            stopLayoutWait();
+        } else {
+            scheduleSendCheck();
+            locateWhenVisible();
+        }
     }, { signal: input.signal });
-    window.addEventListener('pageshow', locateWhenVisible, { signal: input.signal });
+    window.addEventListener('pageshow', () => { scheduleSendCheck(); locateWhenVisible(); }, { signal: input.signal });
     const interrupt = event => {
         if (!hidden() && event.target.closest?.('#chat')) cancel();
     };
+    const inputOptions = { capture: true, passive: true, signal: input.signal };
+    document.addEventListener('pointerdown', event => {
+        pointerAnchor = event.isTrusted && event.button === 0 && tauri && event.target.closest?.(sendControl)
+            ? readSendAnchor(chatSession()) : null;
+    }, inputOptions);
+    document.addEventListener('pointercancel', () => { pointerAnchor = null; }, inputOptions);
     document.addEventListener('click', event => {
         // Cancel a previous reply's queued jump before the host's async send.
-        if (event.isTrusted && event.target.closest?.('#send_but,[data-tt-chat-input-editor-action="send"]')) sendIntent();
-    }, { capture: true, signal: input.signal });
-    for (const type of ['wheel', 'touchmove']) {
-        document.addEventListener(type, interrupt, { capture: true, passive: true, signal: input.signal });
+        if (event.isTrusted && event.target.closest?.(sendControl)) sendIntent(event.detail > 0 ? pointerAnchor : null);
+    }, inputOptions);
+    document.addEventListener('wheel', interrupt, inputOptions);
+    document.addEventListener('touchstart', event => {
+        const container = !hidden() && event.target.closest?.('#chat');
+        const touch = event.touches[0];
+        chatTouch = container && event.touches.length === 1
+            ? { container, id: touch.identifier, x: touch.clientX, y: touch.clientY, height: container.clientHeight } : null;
+    }, inputOptions);
+    document.addEventListener('touchmove', event => {
+        const touch = event.touches[0];
+        const start = chatTouch;
+        if (!start || hidden() || event.touches.length !== 1 || touch.identifier !== start.id
+            || start.container.clientHeight !== start.height) return;
+        const dy = Math.abs(touch.clientY - start.y);
+        if (dy >= 8 && dy > Math.abs(touch.clientX - start.x)) {
+            chatTouch = null;
+            interrupt(event);
+        }
+    }, inputOptions);
+    for (const type of ['touchend', 'touchcancel']) {
+        document.addEventListener(type, () => { chatTouch = null; }, inputOptions);
     }
     document.addEventListener('keydown', event => {
         if (event.isTrusted && event.target.id === 'send_textarea' && event.key === 'Enter'

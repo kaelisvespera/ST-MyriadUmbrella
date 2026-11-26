@@ -32,13 +32,14 @@ export function observeVeridisRewrites({ capture, isSameChat, onRewrite }) {
                 const message = chat?.[id];
                 if (!message || message.is_user || message.is_system) continue;
                 active = { session, id, message, branch: details.branchKey, generation: details.generationId,
+                    before: message.mes, previousStage: readStage(message, details.branchKey),
                     lastUser: chat.findLastIndex(item => item?.is_user) };
                 continue;
             }
             if (!active || !['atomic-commit', 'task-cancelled'].includes(stage)
                 || details?.generationId !== active.generation || id !== active.id) continue;
 
-            const { session, message, branch, lastUser } = active;
+            const { session, message, branch, generation, lastUser, before, previousStage } = active;
             active = null;
             if (stage !== 'atomic-commit' || details.mode !== 'ai' || !isSameChat(session)) continue;
             const result = readStage(message, branch);
@@ -50,7 +51,10 @@ export function observeVeridisRewrites({ capture, isSameChat, onRewrite }) {
             const swapped = row?.style.visibility === 'hidden' && document.body.querySelector(SNAPSHOT);
             const lengthChanged = Number.isInteger(details.beforeLength) && details.beforeLength !== text.length
                 && details.afterLength === text.length;
-            if (row ? !swapped : !lengthChanged) continue;
+            // Automatic Veridis commits store the exact pre-write body as their original.
+            const sourceText = generation ? result.originalMes : before;
+            const contentChanged = text !== sourceText && result !== previousStage && details.afterLength === text.length;
+            if (!lengthChanged && !contentChanged && !swapped) continue;
             const chat = session.context.chat;
             const isRewritten = () => chat[id] === message && message.mes === text
                 && readStage(message, branch) === result && chat.findLastIndex(item => item?.is_user) === lastUser;
