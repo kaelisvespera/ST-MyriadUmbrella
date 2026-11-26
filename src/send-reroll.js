@@ -4,7 +4,7 @@ const cachePrefix = 'st-tools-reroll:';
 const legacyPrefix = 'Reroll_Cache_';
 const attached = message => Boolean(message?.extra?.media?.length || message?.extra?.image || message?.extra?.file);
 
-export function createRerollActions({ getContext = getHost, documentRef = document, storage = localStorage, regenerate = () => triggerRegenerate(documentRef) } = {}) {
+export function createRerollActions({ getContext = getHost, documentRef = document, storage = localStorage, regenerate = () => triggerRegenerate(documentRef), beforeAction } = {}) {
     const memory = new Map();
     let running = false;
     let alive = true;
@@ -46,6 +46,27 @@ export function createRerollActions({ getContext = getHost, documentRef = docume
     async function run(action) {
         if (running) throw new Error('正在处理上一轮重 roll。');
         ready();
+        if (beforeAction) {
+            const context = getContext();
+            const id = chatId(context);
+            const chat = context.chat;
+            const revision = chatRevision;
+            const composer = input();
+            const length = chat.length;
+            const tail = chat.slice(-2).map(message => ({ message, text: message?.mes }));
+            running = true;
+            try {
+                const decision = beforeAction(action);
+                const allowed = typeof decision === 'boolean' ? decision : await decision;
+                if (allowed !== true || !alive || chatRevision !== revision) return;
+                const current = getContext();
+                if (chatId(current) !== id || current.chat !== chat || input() !== composer || chat.length !== length) return;
+                if (tail.some(({ message, text }, index) => chat[length - tail.length + index] !== message || message?.mes !== text)) return;
+                ready();
+            } finally {
+                running = false;
+            }
+        }
         if (action === 'native') { regenerate(); return; }
         const ctx = getContext();
         const revision = chatRevision;
@@ -152,18 +173,39 @@ export function bindRerollGestures(button, act) {
     return destroy;
 }
 
+function requestSendReroll(button, action) {
+    const available = () => button.isConnected && !button.disabled;
+    if (!available()) return false;
+    const decisions = [];
+    let dispatching = true;
+    const allowed = button.dispatchEvent(new CustomEvent('myriad-umbrella:before-send-reroll', {
+        bubbles: true,
+        cancelable: true,
+        detail: {
+            action,
+            waitUntil(decision) {
+                if (dispatching) decisions.push(Promise.resolve(decision).then(value => value === true, () => false));
+            },
+        },
+    }));
+    dispatching = false;
+    if (!allowed || !available()) return false;
+    if (!decisions.length) return true;
+    return Promise.all(decisions).then(results => results.every(Boolean) && available());
+}
+
 export function installSendReroll() {
     const send = document.getElementById('send_but');
     const input = document.getElementById('send_textarea');
     const right = document.getElementById('rightSendForm');
     if (!send || !input || !right) return null;
-    const actions = createRerollActions();
     const button = document.createElement('button');
     button.id = 'st-tools-send-reroll';
     button.type = 'button';
     button.title = '单击重新生成 · 双击全流程重 roll · 长按回填修改';
     button.setAttribute('aria-label', button.title);
     button.innerHTML = '<i class="fa-solid fa-rotate-left" aria-hidden="true"></i>';
+    const actions = createRerollActions({ beforeAction: key => requestSendReroll(button, key) });
     const style = document.createElement('style');
     style.id = 'st-tools-send-reroll-style';
     style.textContent = `#rightSendForm:has(> #st-tools-send-reroll){width:auto;flex-direction:row;flex-wrap:nowrap;align-items:center;gap:4px}button:where(#st-tools-send-reroll){order:2;display:inline-flex;flex:none;align-items:center;justify-content:center;width:var(--bottomFormBlockSize,2.3em);height:var(--bottomFormBlockSize,2.3em);padding:0;margin:0;border:0;border-radius:0;background:transparent;color:inherit;box-shadow:none;font-size:var(--bottomFormIconSize,1em);cursor:pointer;touch-action:none;box-sizing:border-box}button:where(#st-tools-send-reroll) i{display:block;font-size:1em;line-height:1;pointer-events:none}button:where(#st-tools-send-reroll):disabled{opacity:.45;cursor:default}button:where(#st-tools-send-reroll):focus-visible{outline:2px solid currentColor;outline-offset:2px}`;

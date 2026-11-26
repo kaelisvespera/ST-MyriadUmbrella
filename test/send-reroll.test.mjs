@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createRerollActions, bindRerollGestures } from '../src/send-reroll.js';
+import { EventEmitter } from 'node:events';
+import { createRerollActions, bindRerollGestures, installSendReroll } from '../src/send-reroll.js';
 
 function fixture() {
     let id = 'chat-a';
@@ -101,6 +102,97 @@ class Button extends EventTarget {
     setPointerCapture() {}
     fire(type, values={}) { const e = new Event(type, {cancelable:true}); Object.assign(e,{button:0,pointerId:1,clientX:0,clientY:0,detail:1,...values}); this.dispatchEvent(e); }
 }
+
+test('the installed reroll button waits for approval and drops canceled or stale requests', async t => {
+    const f = fixture();
+    f.capture('original');
+    f.chat[0].mes = 'original';
+    f.chat.push({ is_user: false, mes: 'reply' });
+    const button = Object.assign(new Button(), {
+        isConnected: false,
+        setAttribute() {},
+        remove() { this.isConnected = false; },
+    });
+    const send = Object.assign(new Button(), f.doc.getElementById('send_but'), {
+        isConnected: true,
+        getAttribute: () => null,
+    });
+    Object.assign(f.input, { addEventListener() {}, removeEventListener() {} });
+    const nodes = {
+        send_but: send,
+        send_textarea: f.input,
+        option_regenerate: { click: () => f.trace.push('regenerate') },
+        rightSendForm: { parentNode: {}, insertBefore() { button.isConnected = true; } },
+    };
+    Object.assign(f.doc, {
+        getElementById: key => nodes[key],
+        createElement: tag => tag === 'button' ? button : { remove() {} },
+        head: { append() {} },
+    });
+    f.ctx.eventTypes = { CHAT_CHANGED: 'chat-changed' };
+    f.ctx.eventSource = new EventEmitter();
+    const globals = {
+        document: f.doc,
+        localStorage: { getItem: key => f.data.get(key), setItem: (key, value) => f.data.set(key, value) },
+        SillyTavern: { getContext: () => f.ctx },
+        MutationObserver: class { observe() {} disconnect() {} },
+    };
+    const descriptors = Object.getOwnPropertyDescriptors(globalThis);
+    for (const [key, value] of Object.entries(globals)) {
+        Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
+    }
+    const runtime = installSendReroll();
+    t.after(() => {
+        runtime.destroy();
+        for (const key of Object.keys(globals)) {
+            if (descriptors[key]) Object.defineProperty(globalThis, key, descriptors[key]);
+            else delete globalThis[key];
+        }
+    });
+
+    const settle = () => new Promise(resolve => setImmediate(resolve));
+    const activate = () => button.fire('click', { detail: 0 });
+    activate();
+    assert.deepEqual(f.trace, ['regenerate']);
+    f.trace.length = 0;
+
+    let resolveApproval;
+    let count = 0;
+    let cancelEvent = false;
+    let secondApproval = true;
+    button.addEventListener('myriad-umbrella:before-send-reroll', event => {
+        count++;
+        assert.equal(event.target, button);
+        assert.equal(event.bubbles, true);
+        assert.equal(event.cancelable, true);
+        assert.equal(event.detail.action, 'native');
+        event.detail.waitUntil(secondApproval);
+        event.detail.waitUntil(new Promise(resolve => { resolveApproval = resolve; }));
+        if (cancelEvent) event.preventDefault();
+    });
+    activate();
+    activate();
+    assert.equal(count, 1);
+    assert.deepEqual(f.trace, []);
+    resolveApproval(true);
+    await settle();
+    assert.deepEqual(f.trace, ['regenerate']);
+    f.trace.length = 0;
+
+    for (const scenario of ['false', 'event canceled', 'rejection', 'chat switched', 'tail changed', 'button disabled']) {
+        cancelEvent = scenario === 'event canceled';
+        secondApproval = scenario === 'false' ? false : true;
+        if (scenario === 'rejection') secondApproval = Promise.reject(new Error('denied'));
+        activate();
+        if (scenario === 'chat switched') f.ctx.eventSource.emit('chat-changed');
+        if (scenario === 'tail changed') f.chat.at(-1).mes = 'new reply';
+        if (scenario === 'button disabled') button.disabled = true;
+        resolveApproval(true);
+        await settle();
+        assert.deepEqual(f.trace, [], scenario);
+    }
+});
+
 test('pointer single, double, hold, movement, cancellation, keyboard and destroy are exclusive', t => {
     t.mock.timers.enable({apis:['setTimeout']});
     const button = new Button(); const calls = [];
