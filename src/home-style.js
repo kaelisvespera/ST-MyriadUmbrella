@@ -26,12 +26,37 @@ export const homeCss = `
     .greeting-controls{display:flex;align-items:center;justify-content:space-between;gap:12px;border-top:1px solid var(--tt-border);padding-top:12px;font-size:12px;color:var(--tt-muted)}
     .greeting-controls .row{gap:3px}.greeting-controls .icon-button{width:32px;height:32px}.greeting-controls i{font-size:14px}
     .greeting-frame{display:block;flex:1;width:100%;min-height:240px;border:0;background:var(--tt-surface);color-scheme:normal}
-    .toolbox{padding-top:8px;font-size:13px}.toolbox .feature{margin:0;padding:0;border:0;border-bottom:1px solid var(--tt-border)}.toolbox .feature:last-child{border-bottom:0}
-    .toolbox summary,.toolbox .feature-switch{display:flex;align-items:center;gap:9px;min-height:42px;margin:0;padding:9px 2px;list-style:none;cursor:pointer;font-size:13px;line-height:24px}
-    .toolbox summary::-webkit-details-marker{display:none}.toolbox summary>i{flex:0 0 12px;color:var(--tt-muted);font-size:10px;transition:transform .15s}.toolbox details[open]>summary>i{transform:rotate(90deg)}
-    .toolbox summary>span,.toolbox .feature-switch>span{flex:1;min-width:0}.toolbox .feature-switch{padding-left:23px}.toolbox .feature-body{display:flex;align-items:center;flex-wrap:wrap;gap:7px;padding:0 2px 12px 23px}.toolbox .row{gap:7px;margin:0}.toolbox button,.toolbox select{padding:5px 9px;border:1px solid var(--tt-border);border-radius:5px;background:var(--tt-surface);font-size:12px;color:var(--tt-ink);line-height:1.5}
-    .toolbox select{max-width:100%}.toolbox input[type=checkbox]{width:15px;height:15px;margin:0;accent-color:var(--tt-ink)}
-    .toolbox .error{color:var(--tt-ink);font-size:12px}
+
+    .toolbox{--tool-fill:color-mix(in srgb,var(--tt-ink) 5%,var(--tt-surface));--tool-line:color-mix(in srgb,var(--tt-ink) 16%,var(--tt-surface));--tool-soft:color-mix(in srgb,var(--tt-ink) 75%,var(--tt-surface));padding-top:4px;font-size:14px}
+    .toolbox:not([hidden]){display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));align-content:start;align-items:start;gap:16px}
+    .toolbox .tool-group{min-width:0}
+    .toolbox h3{display:flex;align-items:center;gap:8px;margin:0 2px 5px;font-size:12px;font-weight:650;line-height:1.5;color:var(--tool-soft)}
+    .toolbox h3 i{width:16px;text-align:center}
+    .toolbox .tool-sheet{overflow:hidden;border:1px solid var(--tool-line);border-radius:10px;background:var(--tool-fill)}
+    .toolbox .tool-sheet:not(.tool-qr)>:not([hidden])~:not([hidden]){border-top:1px solid var(--tool-line)}
+    .toolbox .tool-control{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:44px;margin:0;padding:8px 11px;line-height:1.35;cursor:pointer}
+    .toolbox .tool-control>span{min-width:0;overflow-wrap:anywhere}
+    .toolbox small{display:block;margin-top:2px;font-size:11px;color:var(--tool-soft)}
+    .toolbox .tool-control:has(input:disabled){cursor:wait}
+    .toolbox .tool-control:focus-within{outline:2px solid var(--tt-ink);outline-offset:-3px}
+    .toolbox input[type=checkbox]{appearance:none;display:grid;align-items:center;flex:none;width:32px;height:18px;margin:0;padding:2px;border:1px solid color-mix(in srgb,var(--tt-ink) 50%,var(--tt-surface));border-radius:12px;background:var(--tt-surface);cursor:inherit}
+    .toolbox input[type=checkbox]::before{content:'';width:12px;height:12px;border-radius:50%;background:var(--tool-soft)}
+    .toolbox input[type=checkbox]:checked{border-color:var(--tt-ink);background:var(--tt-ink)}
+    .toolbox input[type=checkbox]:checked::before{justify-self:end;background:var(--tt-surface)}
+    .toolbox input[type=checkbox]:focus-visible{outline:none}
+    .toolbox input[type=checkbox]:disabled{opacity:.55}
+    .toolbox .tool-qr{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
+    .toolbox .tool-qr>label:nth-child(even){border-inline-start:1px solid var(--tool-line)}
+    .toolbox .tool-qr>label:nth-child(n+3){border-top:1px solid var(--tool-line)}
+    .toolbox .tool-qr>label:last-child:nth-child(odd){grid-column:1/-1}
+    .toolbox .tool-actions,.toolbox .tool-notice{display:flex;flex-wrap:wrap;align-items:center;gap:6px;min-width:0;padding:7px 10px}
+    .toolbox .tool-notice label{flex:1 1 auto;margin:0;min-height:0}
+    .toolbox :is(button,select){min-height:36px;max-width:100%;padding:4px 8px;border:1px solid var(--tool-line);border-radius:6px;background:var(--tt-surface);color:var(--tt-ink);font-size:12px}
+    .toolbox :is(button,select):focus-visible{outline-color:var(--tt-ink);outline-offset:1px}
+    .toolbox button:hover{background:var(--tool-fill)}
+    .tools-heading{margin:0;font-size:17px;font-weight:680;line-height:1.3}
+    :host(.tools-active){z-index:2147483646}
+    @media(forced-colors:active){.toolbox input[type=checkbox]{appearance:auto}.toolbox input[type=checkbox]::before{display:none}}
     @media(min-width:641px){:host(:not(.tt-mobile)) .home-header{cursor:grab;touch-action:none;user-select:none}.home.is-dragging .home-header{cursor:grabbing}}
     @media(max-width:640px){.home{top:max(20px,env(safe-area-inset-top,0px));left:50%;right:auto;transform:translateX(-50%);width:max(0px,calc(var(--tt-window-width,100dvw) - 20px));max-width:none;height:max(0px,calc(var(--tt-window-height,100dvh) - max(40px,env(safe-area-inset-top,0px)) - max(40px,env(safe-area-inset-bottom,0px))));max-height:none}}
     :host(.tt-mobile) .home{top:20px;left:50%;right:auto;transform:translateX(-50%);width:max(0px,calc(var(--tt-window-width,100dvw) - 20px));max-width:none;height:max(0px,calc(var(--tt-window-height,100dvh) - 80px));max-height:none}

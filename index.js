@@ -12,7 +12,7 @@ import { installPresetToggles } from './src/preset-toggles.js';
 import { installCharacterFolders } from './src/character-folders.js';
 import { installTauriBack } from './src/tauri-back.js';
 import { installDetailsCollapse } from './src/details-collapse.js';
-import { registerChatNavigationCommands } from './src/chat-navigation.js';
+import { installReplyLocation, registerChatNavigationCommands } from './src/chat-navigation.js';
 
 export { registerDetailsCollapse } from './src/details-collapse.js';
 
@@ -27,6 +27,7 @@ let cleanupPresetToggles = null;
 let cleanupCharacterFolders = null;
 let cleanupTauriBack = null;
 let cleanupDetailsCollapse = null;
+let cleanupReplyLocation = null;
 
 function apply() {
     const config = readConfig();
@@ -34,6 +35,8 @@ function apply() {
     if (config.floatingPositions && !floatingPositions) floatingPositions = installFloatingPositions();
     if (dock && !config.dock) { dock.destroy(); dock = null; }
     if (config.dock && !dock) dock = installDock({ onDrop: element => floatingPositions?.rememberDrop(element) });
+    if (config.locateReply && !cleanupReplyLocation) cleanupReplyLocation = installReplyLocation();
+    if (!config.locateReply && cleanupReplyLocation) { cleanupReplyLocation(); cleanupReplyLocation = null; }
     if (config.editor && !editor) editor = installEditor();
     if (!config.editor && editor) { editor(); editor = null; }
     if (config.detailsCollapse && !cleanupDetailsCollapse) cleanupDetailsCollapse = installDetailsCollapse();
@@ -71,6 +74,7 @@ export function disable() {
     cleanupCharacterFolders?.(); cleanupCharacterFolders = null;
     cleanupPresetToggles?.(); cleanupPresetToggles = null;
     cleanupDetailsCollapse?.(); cleanupDetailsCollapse = null;
+    cleanupReplyLocation?.(); cleanupReplyLocation = null;
     sendReroll?.destroy(); sendReroll = null;
     home?.destroy(); home = null;
     floatingPositions?.destroy(); floatingPositions = null;

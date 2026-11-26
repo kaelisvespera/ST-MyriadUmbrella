@@ -43,7 +43,7 @@ export function installTheme(onChange) {
         const home = resolveHomePalette(background, foreground);
         // Theme controls change root/body styles. Own variables live in this
         // stylesheet so updating them does not retrigger the attribute observer.
-        style.textContent = `:root{--st-tools-surface:${palette.surface};--st-tools-ink:${palette.ink};--st-home-surface:${home.surface};--st-home-ink:${home.ink}}`;
+        style.textContent = `:root{--st-tools-surface:${palette.surface};--st-tools-ink:${palette.ink};--st-home-surface:${home.surface};--st-home-ink:${home.ink}}body:has(> #st-tools-home.tools-active) #toast-container{z-index:2147483647}`;
         onChange?.();
     }
     const observer = new MutationObserver(update);

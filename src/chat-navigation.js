@@ -10,17 +10,23 @@ export const chatNavigationReplies = commands.map(([label, name]) => [label, '/'
 
 let floorPickerOpen = false;
 
-function readChat() {
+function chatSession() {
     const context = getHost();
     const container = document.getElementById('chat');
-    if (!container || !context.chat?.length) throw new Error('当前聊天没有可导航的消息。');
-    return { context, container, chatId: context.getCurrentChatId?.() };
+    const chatId = context.getCurrentChatId?.() ?? context.chatId;
+    return container && Array.isArray(context.chat) ? { context, container, chatId } : null;
+}
+
+function readChat() {
+    const session = chatSession();
+    if (!session?.context.chat.length) throw new Error('当前聊天没有可导航的消息。');
+    return session;
 }
 
 function isSameChat({ context, chatId }) {
     const current = getHost();
-    return current.chat === context.chat && current.getCurrentChatId?.() === chatId
-        && current.characterId === context.characterId && current.groupId === context.groupId;
+    return current.chat === context.chat && (current.getCurrentChatId?.() ?? current.chatId) === chatId
+        && current.groupId === context.groupId && (context.groupId != null || current.characterId === context.characterId);
 }
 
 function viewportTop(container) {
@@ -48,18 +54,15 @@ function isMobile(context) {
     return host ? host.kind === 'mobile' : context.isMobile?.() === true;
 }
 
-function scrollTo({ context, container }, top) {
-    const options = {
-        top,
-        behavior: isMobile(context) || matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth',
-    };
+function scrollTo({ context, container }, top, behavior) {
+    const options = { top, behavior: behavior ?? (isMobile(context) || matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth') };
     if (typeof context.scrollChatSurfaceTo === 'function') context.scrollChatSurfaceTo(options);
     else container.scrollTo(options);
 }
 
-async function goToFloor(session, floor) {
+async function goToFloor(session, floor, { before = 0, behavior, isTarget = () => isSameChat(session) } = {}) {
     const { context, container } = session;
-    if (!isSameChat(session)) return;
+    if (!isTarget()) return;
     if (!Number.isSafeInteger(floor) || floor < 0 || floor >= context.chat.length) {
         throw new Error(`请输入 #0 到 #${context.chat.length - 1} 之间的整数楼层。`);
     }
@@ -69,7 +72,7 @@ async function goToFloor(session, floor) {
         if (context.SlashCommandParser?.commands?.['chat-jump'] && typeof context.executeSlashCommandsWithOptions === 'function') {
             // TT handles both bounded projection and ordinary history pagination.
             await context.executeSlashCommandsWithOptions(`/chat-jump ${floor}`);
-            if (!isSameChat(session)) return;
+            if (!isTarget()) return;
             row = container.querySelector(selector);
             // Bounded projection centers the target. Keep the QR actions
             // aligned to the same message start as a jump to a mounted row.
@@ -78,15 +81,15 @@ async function goToFloor(session, floor) {
             const first = Number(container.querySelector(':scope > .mes[mesid]')?.getAttribute('mesid'));
             if (Number.isSafeInteger(first) && floor < first) {
                 const { showMoreMessages } = await import('/script.js');
-                if (!isSameChat(session)) return;
+                if (!isTarget()) return;
                 await showMoreMessages(first - floor);
-                if (!isSameChat(session)) return;
+                if (!isTarget()) return;
                 row = container.querySelector(selector);
             }
         }
     }
     if (!row) throw new Error(`当前无法找到 #${floor} 楼。`);
-    scrollTo(session, container.scrollTop + row.getBoundingClientRect().top - viewportTop(container));
+    scrollTo(session, container.scrollTop + row.getBoundingClientRect().top - viewportTop(container) - before, behavior);
 }
 
 async function goUp() {
@@ -148,4 +151,133 @@ export function registerChatNavigationCommands(context = getHost()) {
             },
         }));
     }
+}
+
+const generatedReplyTypes = new Set(['normal', 'continue', 'regenerate', 'swipe', 'append', 'appendFinal']);
+
+export function installReplyLocation() {
+    const { eventSource, eventTypes } = getHost();
+    const input = new AbortController();
+    const tauri = Boolean(globalThis.__TAURITAVERN_HOST__);
+    let pending = null;
+    let scrollFrame = 0;
+
+    function reset() {
+        pending = null;
+        cancelAnimationFrame(scrollFrame);
+    }
+
+    async function waitForIdle() {
+        const { waitForGenerationIdle } = await import('/script.js');
+        await waitForGenerationIdle();
+    }
+
+    function start(type, options, dryRun) {
+        if (dryRun || !generatedReplyTypes.has(type ?? 'normal')) return;
+        if ((pending?.groupOpen || pending?.cancelledUntilIdle) && isSameChat(pending.session)) {
+            pending.signal = options?.signal;
+            return;
+        }
+        reset();
+        const session = chatSession();
+        if (session) pending = { session, signal: options?.signal, groupOpen: false, ended: false, cancelled: false, queued: false };
+    }
+
+    function startGroup({ type, selected_group: groupId } = {}) {
+        const kind = type === 'auto' ? 'normal' : type;
+        const session = chatSession();
+        if (session?.context.groupId == null || String(session.context.groupId) !== String(groupId)
+            || !generatedReplyTypes.has(kind ?? 'normal')) return;
+        if (!pending || !current(pending) || pending.ended || pending.reply) start(kind);
+        if (pending) pending.groupOpen = true;
+    }
+
+    function cancel() {
+        const run = pending;
+        if (!run || run.cancelled) return;
+        run.cancelled = true;
+        cancelAnimationFrame(scrollFrame);
+        if (tauri && !run.groupOpen) {
+            // Automatic continuation also emits STARTED within this same transaction.
+            run.cancelledUntilIdle = true;
+            void waitForIdle().catch(() => {}).finally(() => { run.cancelledUntilIdle = false; });
+        }
+    }
+
+    function current(run) {
+        return pending === run && !run.cancelled && !run.signal?.aborted && isSameChat(run.session);
+    }
+
+    function ready() {
+        const run = pending;
+        if (!run || !current(run) || run.groupOpen || run.queued || !run.reply || (!tauri && !run.ended)) return;
+        run.queued = true;
+        // The host awaits CHARACTER_MESSAGE_RENDERED listeners. Wait for its
+        // generation transaction outside that listener so it can finish.
+        void (async () => {
+            if (tauri) await waitForIdle();
+            if (!current(run)) return;
+            scrollFrame = requestAnimationFrame(() => {
+                if (!current(run)) return;
+                const { session, reply } = run;
+                const isTarget = () => current(run) && session.context.chat[reply.id] === reply.message;
+                if (!isTarget()) return;
+                const before = Math.min(160, Math.max(24, session.container.clientHeight * 0.18));
+                void goToFloor(session, reply.id, { before, behavior: 'instant', isTarget })
+                    .catch(error => { if (isTarget()) console.warn('[千机伞] 定位新消息失败', error); })
+                    .finally(() => { if (pending === run) reset(); });
+            });
+        })().catch(error => { if (current(run)) console.warn('[千机伞] 等待生成完成失败', error); });
+    }
+
+    function render(id, type) {
+        const run = pending;
+        if (!run || !current(run) || !generatedReplyTypes.has(type ?? 'normal')) return;
+        const floor = Number(id);
+        const message = run.session.context.chat[floor];
+        if (!Number.isSafeInteger(floor) || floor < 0 || !message || message.is_user || message.is_system) return;
+        const stream = tauri ? getHost().streamingProcessor : null;
+        if (stream?.isStopped && stream.messageId === floor && stream.timeStarted === message.gen_started) return;
+        run.reply = { id: floor, message };
+        ready();
+    }
+
+    function end() {
+        if (!pending) return;
+        pending.ended = true;
+        ready();
+    }
+
+    function endGroup({ selected_group: groupId } = {}) {
+        if (!pending?.groupOpen || String(pending.session.context.groupId) !== String(groupId)) return;
+        pending.groupOpen = false;
+        end();
+    }
+
+    const listeners = [
+        [eventTypes.GENERATION_STARTED, start],
+        [eventTypes.CHARACTER_MESSAGE_RENDERED, render],
+        [eventTypes.GENERATION_ENDED, end],
+        [eventTypes.GENERATION_STOPPED, cancel],
+        [eventTypes.GROUP_WRAPPER_STARTED, startGroup],
+        [eventTypes.GROUP_WRAPPER_FINISHED, endGroup],
+        [eventTypes.CHAT_CHANGED, reset],
+    ].filter(([type]) => type);
+    for (const [type, listener] of listeners) eventSource.on(type, listener);
+    const interrupt = event => {
+        if (pending?.session.container.contains(event.target)) cancel();
+    };
+    for (const type of ['wheel', 'touchmove', 'pointerdown']) {
+        document.addEventListener(type, interrupt, { capture: true, passive: true, signal: input.signal });
+    }
+    document.addEventListener('keydown', event => {
+        if (['PageUp', 'PageDown', 'ArrowUp', 'ArrowDown', 'Home', 'End', ' '].includes(event.key)
+            && !event.target.closest?.('button, input, textarea, select, [contenteditable]')) interrupt(event);
+    }, { capture: true, signal: input.signal });
+
+    return () => {
+        reset();
+        input.abort();
+        for (const [type, listener] of listeners) eventSource.removeListener(type, listener);
+    };
 }
