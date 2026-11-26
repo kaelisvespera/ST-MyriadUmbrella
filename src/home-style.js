@@ -38,12 +38,11 @@ export const homeCss = `
     .toolbox .tool-control>span{min-width:0;overflow-wrap:anywhere}
     .toolbox small{display:block;margin-top:2px;font-size:11px;color:var(--tool-soft)}
     .toolbox .tool-control:has(input:disabled){cursor:wait}
-    .toolbox .tool-control:focus-within{outline:2px solid var(--tt-ink);outline-offset:-3px}
     .toolbox input[type=checkbox]{appearance:none;display:grid;align-items:center;flex:none;width:32px;height:18px;margin:0;padding:2px;border:1px solid color-mix(in srgb,var(--tt-ink) 50%,var(--tt-surface));border-radius:12px;background:var(--tt-surface);cursor:inherit}
     .toolbox input[type=checkbox]::before{content:'';width:12px;height:12px;border-radius:50%;background:var(--tool-soft)}
     .toolbox input[type=checkbox]:checked{border-color:var(--tt-ink);background:var(--tt-ink)}
     .toolbox input[type=checkbox]:checked::before{justify-self:end;background:var(--tt-surface)}
-    .toolbox input[type=checkbox]:focus-visible{outline:none}
+    .toolbox input[type=checkbox]:focus-visible{outline:2px solid var(--tt-ink);outline-offset:2px}
     .toolbox input[type=checkbox]:disabled{opacity:.55}
     .toolbox .tool-qr{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
     .toolbox .tool-qr>label:nth-child(even){border-inline-start:1px solid var(--tool-line)}

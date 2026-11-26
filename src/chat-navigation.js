@@ -161,10 +161,18 @@ export function installReplyLocation() {
     const tauri = Boolean(globalThis.__TAURITAVERN_HOST__);
     let pending = null;
     let scrollFrame = 0;
+    const hidden = () => document.visibilityState === 'hidden';
+    const layout = new ResizeObserver(locateWhenVisible);
+
+    function stopLayoutWait() {
+        cancelAnimationFrame(scrollFrame);
+        scrollFrame = 0;
+        layout.disconnect();
+    }
 
     function reset() {
         pending = null;
-        cancelAnimationFrame(scrollFrame);
+        stopLayoutWait();
     }
 
     async function waitForIdle() {
@@ -173,14 +181,22 @@ export function installReplyLocation() {
     }
 
     function start(type, options, dryRun) {
-        if (dryRun || !generatedReplyTypes.has(type ?? 'normal')) return;
-        if ((pending?.groupOpen || pending?.cancelledUntilIdle) && isSameChat(pending.session)) {
-            pending.signal = options?.signal;
-            return;
+        const kind = type ?? 'normal';
+        if (dryRun || !generatedReplyTypes.has(kind)) return;
+        if (!(pending?.groupOpen || pending?.cancelledUntilIdle) || !isSameChat(pending.session)) {
+            reset();
+            const session = chatSession();
+            if (!session) return;
+            pending = { session, groupOpen: false, ended: false, cancelled: false, queued: false };
         }
-        reset();
-        const session = chatSession();
-        if (session) pending = { session, signal: options?.signal, groupOpen: false, ended: false, cancelled: false, queued: false };
+        const chat = pending.session.context.chat;
+        const tail = chat.at(-1);
+        pending.firstNewFloor = chat.length;
+        // Regenerate can replace the last reply in place. Continue and swipe
+        // can update it without replacing the message object.
+        pending.replacingTail = kind !== 'normal' && tail
+            ? { message: tail, text: tail.mes, finished: tail.gen_finished } : null;
+        pending.signal = options?.signal;
     }
 
     function startGroup({ type, selected_group: groupId } = {}) {
@@ -196,7 +212,7 @@ export function installReplyLocation() {
         const run = pending;
         if (!run || run.cancelled) return;
         run.cancelled = true;
-        cancelAnimationFrame(scrollFrame);
+        stopLayoutWait();
         if (tauri && !run.groupOpen) {
             // Automatic continuation also emits STARTED within this same transaction.
             run.cancelledUntilIdle = true;
@@ -208,6 +224,38 @@ export function installReplyLocation() {
         return pending === run && !run.cancelled && !run.signal?.aborted && isSameChat(run.session);
     }
 
+    function locateWhenVisible() {
+        const run = pending;
+        if (!run?.idle || !current(run) || hidden() || scrollFrame || run.locating) return;
+        // TT can restore viewport size and then reproject ChatSurface on resume.
+        scrollFrame = requestAnimationFrame(() => {
+            scrollFrame = requestAnimationFrame(() => {
+                scrollFrame = 0;
+                if (!current(run) || hidden()) return;
+                const { session, reply } = run;
+                const { chat } = session.context;
+                const { container } = session;
+                const isTarget = () => current(run) && !hidden() && chat[reply.id] === reply.message
+                    && chat.findLastIndex(message => message?.is_user) < reply.id;
+                if (!isTarget()) { reset(); return; }
+                if (!container.clientHeight) { layout.observe(container); return; }
+                const row = container.querySelector(`:scope > .mes[mesid="${reply.id}"]`);
+                if (row && !row.getBoundingClientRect().height) { layout.observe(row); return; }
+
+                layout.disconnect();
+                run.locating = true;
+                const before = Math.min(160, Math.max(24, container.clientHeight * 0.18));
+                void goToFloor(session, reply.id, { before, behavior: 'instant', isTarget })
+                    .catch(error => { if (isTarget()) console.warn('[千机伞] 定位新消息失败', error); })
+                    .finally(() => {
+                        if (pending !== run) return;
+                        run.locating = false;
+                        if (!hidden()) reset();
+                    });
+            });
+        });
+    }
+
     function ready() {
         const run = pending;
         if (!run || !current(run) || run.groupOpen || run.queued || !run.reply || (!tauri && !run.ended)) return;
@@ -217,25 +265,23 @@ export function installReplyLocation() {
         void (async () => {
             if (tauri) await waitForIdle();
             if (!current(run)) return;
-            scrollFrame = requestAnimationFrame(() => {
-                if (!current(run)) return;
-                const { session, reply } = run;
-                const isTarget = () => current(run) && session.context.chat[reply.id] === reply.message;
-                if (!isTarget()) return;
-                const before = Math.min(160, Math.max(24, session.container.clientHeight * 0.18));
-                void goToFloor(session, reply.id, { before, behavior: 'instant', isTarget })
-                    .catch(error => { if (isTarget()) console.warn('[千机伞] 定位新消息失败', error); })
-                    .finally(() => { if (pending === run) reset(); });
-            });
+            run.idle = true;
+            locateWhenVisible();
         })().catch(error => { if (current(run)) console.warn('[千机伞] 等待生成完成失败', error); });
     }
 
     function render(id, type) {
         const run = pending;
-        if (!run || !current(run) || !generatedReplyTypes.has(type ?? 'normal')) return;
+        if (!run || !current(run) || id == null || !generatedReplyTypes.has(type ?? 'normal')) return;
         const floor = Number(id);
         const message = run.session.context.chat[floor];
         if (!Number.isSafeInteger(floor) || floor < 0 || !message || message.is_user || message.is_system) return;
+        if (floor < run.firstNewFloor) {
+            const tail = run.replacingTail;
+            if (floor !== run.firstNewFloor - 1 || !tail
+                || (message === tail.message && message.mes === tail.text && message.gen_finished === tail.finished)) return;
+        }
+        if (run.reply && floor < run.reply.id) return;
         const stream = tauri ? getHost().streamingProcessor : null;
         if (stream?.isStopped && stream.messageId === floor && stream.timeStarted === message.gen_started) return;
         run.reply = { id: floor, message };
@@ -264,13 +310,28 @@ export function installReplyLocation() {
         [eventTypes.CHAT_CHANGED, reset],
     ].filter(([type]) => type);
     for (const [type, listener] of listeners) eventSource.on(type, listener);
+    document.addEventListener('visibilitychange', () => {
+        if (hidden()) stopLayoutWait();
+        else locateWhenVisible();
+    }, { signal: input.signal });
+    window.addEventListener('pageshow', locateWhenVisible, { signal: input.signal });
     const interrupt = event => {
-        if (pending?.session.container.contains(event.target)) cancel();
+        if (!hidden() && pending?.session.container.contains(event.target)) cancel();
     };
-    for (const type of ['wheel', 'touchmove', 'pointerdown']) {
+    document.addEventListener('click', event => {
+        // Cancel a previous reply's queued jump before the host's async send.
+        if (pending && event.isTrusted && event.target.closest?.('#send_but')) reset();
+    }, { capture: true, signal: input.signal });
+    for (const type of ['wheel', 'touchmove']) {
         document.addEventListener(type, interrupt, { capture: true, passive: true, signal: input.signal });
     }
     document.addEventListener('keydown', event => {
+        if (pending && event.isTrusted && event.target.id === 'send_textarea' && event.key === 'Enter'
+            && !event.isComposing && event.keyCode !== 229 && !event.shiftKey && !event.ctrlKey && !event.altKey) {
+            const context = getHost();
+            const mode = context.powerUserSettings?.send_on_enter ?? 0;
+            if (mode === 1 || (mode === 0 && !isMobile(context))) reset();
+        }
         if (['PageUp', 'PageDown', 'ArrowUp', 'ArrowDown', 'Home', 'End', ' '].includes(event.key)
             && !event.target.closest?.('button, input, textarea, select, [contenteditable]')) interrupt(event);
     }, { capture: true, signal: input.signal });

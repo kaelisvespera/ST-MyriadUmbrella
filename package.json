@@ -1,6 +1,6 @@
 {
   "name": "st-myriad-umbrella",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "private": true,
   "repository": { "type": "git", "url": "https://github.com/kaelisvespera/ST-MyriadUmbrella.git" },
   "type": "module",
