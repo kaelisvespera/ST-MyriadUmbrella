@@ -1,9 +1,10 @@
 import { getHost, notify, saveEditedMessage } from './host.js';
 import { locateDivider, locateText, replaceSpan } from './text-locate.js';
 import { editDialog } from './ui.js';
+import { COLLAPSE_CONTROL } from './details-collapse.js';
 
 const BLOCKS = 'p,li,summary,pre,blockquote,h1,h2,h3,h4,h5,h6,td,th,div';
-const EDIT_CONTROLS = 'button,a,input,textarea,select,[contenteditable]:not([contenteditable="false"])';
+const EDIT_CONTROLS = `button,a,input,textarea,select,[contenteditable]:not([contenteditable="false"]),${COLLAPSE_CONTROL}`;
 
 function targetElement(event) {
     return event.target instanceof Element ? event.target : event.target?.parentElement;
@@ -24,25 +25,30 @@ function selectedRange() {
     return selection?.rangeCount && !selection.isCollapsed ? selection.getRangeAt(0).cloneRange() : null;
 }
 
+function sourceText(root, ignored = COLLAPSE_CONTROL) {
+    root.querySelectorAll(ignored).forEach(element => element.remove());
+    return root.textContent;
+}
+
 function clickedText(event, target, container, selection) {
     if (selection && container.contains(selection.commonAncestorContainer)
         && Array.from(selection.getClientRects()).some(rect => event.clientX >= rect.left && event.clientX <= rect.right
             && event.clientY >= rect.top && event.clientY <= rect.bottom)) {
-        return { range: selection, text: selection.toString(), wholeBlock: false };
+        const text = container.querySelector(COLLAPSE_CONTROL) ? sourceText(selection.cloneContents()) : selection.toString();
+        return { range: selection, text, wholeBlock: false };
     }
     const caret = caretRange(event.clientX, event.clientY);
     const node = caret?.startContainer;
     const caretElement = node instanceof Element ? node : node?.parentElement;
-    const block = (node && container.contains(node) ? caretElement : target)?.closest(BLOCKS);
+    const inBody = node && container.contains(node) && !caretElement?.closest(COLLAPSE_CONTROL);
+    const block = (inBody ? caretElement : target)?.closest(BLOCKS);
     if (block && block !== container && container.contains(block)) {
         const range = document.createRange();
         range.selectNodeContents(block);
-        const clone = block.cloneNode(true);
-        clone.querySelectorAll('details,ul,ol').forEach(child => child.remove());
-        const text = clone.textContent;
+        const text = sourceText(block.cloneNode(true), `details,ul,ol,${COLLAPSE_CONTROL}`);
         if (text.trim()) return { range, text, wholeBlock: true };
     }
-    if (node?.nodeType === Node.TEXT_NODE && container.contains(node)) {
+    if (inBody && node.nodeType === Node.TEXT_NODE) {
         const raw = node.textContent;
         caret.setStart(node, raw.lastIndexOf('\n', caret.startOffset - 1) + 1);
         const lineBreak = raw.indexOf('\n', caret.endOffset);
@@ -52,7 +58,7 @@ function clickedText(event, target, container, selection) {
     if (target !== container) {
         const range = document.createRange();
         range.selectNodeContents(target);
-        return { range, text: range.toString(), wholeBlock: true };
+        return { range, text: sourceText(range.cloneContents()), wholeBlock: true };
     }
     return null;
 }
@@ -67,14 +73,15 @@ function locateEdit(event, target, container, selection, context, message, index
     const prefix = document.createRange();
     prefix.selectNodeContents(container);
     prefix.setEnd(picked.range.startContainer, picked.range.startOffset);
+    const containsControls = container.querySelector(COLLAPSE_CONTROL);
     return locateText(raw, picked.text, {
-        visibleText: container.textContent,
-        beforeText: prefix.toString(),
+        visibleText: containsControls ? sourceText(container.cloneNode(true)) : container.textContent,
+        beforeText: containsControls ? sourceText(prefix.cloneContents()) : prefix.toString(),
         wholeBlock: picked.wholeBlock,
         renderText: marked => {
             const template = document.createElement('template');
             template.innerHTML = context.messageFormatting(marked, message.name, message.is_system, message.is_user, index);
-            return template.content.textContent;
+            return sourceText(template.content);
         },
     });
 }

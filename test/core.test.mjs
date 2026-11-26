@@ -272,6 +272,17 @@ test('QR 勾选显示两按钮、取消隐藏，重选不重复添加或覆盖�
     await setQuickRepliesEnabled(true, api, '重新生成');
     assert.equal(quickRepliesEnabled(api, '重新生成'), true);
     assert.equal(quickRepliesEnabled(api, '回退输入'), false, '只打开所选按钮');
+
+    await setQuickRepliesEnabled(true, api, '回顶');
+    assert.equal(quickRepliesEnabled(api, '回顶'), true);
+    assert.equal(api.getQrByLabel('千机伞', '回顶').message, '/tt-chat-up');
+    assert.equal(api.getQrByLabel('千机伞', '回底'), undefined);
+    await setQuickRepliesEnabled(true, api, '回楼层');
+    await setQuickRepliesEnabled(false, api, '回顶');
+    assert.equal(quickRepliesEnabled(api, '回顶'), false);
+    assert.equal(quickRepliesEnabled(api, '回楼层'), true);
+    assert.equal(quickRepliesEnabled(api, '重新生成'), true);
+    assert.equal(api.getQrByLabel('千机伞', '自己加的按钮').message, '/echo 保留');
 });
 
 function qrUpgradeFixture() {

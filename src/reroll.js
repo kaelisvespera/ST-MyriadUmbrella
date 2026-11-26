@@ -1,4 +1,5 @@
 import { getHost, notify, retractInput, triggerRegenerate } from './host.js';
+import { chatNavigationReplies } from './chat-navigation.js';
 
 export function registerCommands() {
     const ctx = getHost();
@@ -13,6 +14,7 @@ export function registerCommands() {
 const quickReplySetName = '千机伞';
 const legacyQuickReplySetName = '酒馆工具箱';
 const replies = [['重新生成', '/tt-reroll'], ['回退输入', '/tt-retract']];
+const allReplies = [...replies, ...chatNavigationReplies];
 let pendingRename = null;
 const renameError = message => Object.assign(new Error(message), { name: 'QuickReplyRenameError' });
 
@@ -84,16 +86,22 @@ export async function installQuickReplies(api = globalThis.quickReplyApi, select
     const name = quickReplySetName;
     // Read effective visibility before enabling the shared native set, so
     // choosing one button never silently reveals an unchecked sibling.
-    const visible = new Map(replies.map(([label]) => [label, !selected || selected === label || quickRepliesEnabled(api, label)]));
+    const defaultLabels = replies.map(([label]) => label);
+    const visible = new Map(allReplies.map(([label]) => [label,
+        (selected ? selected === label : defaultLabels.includes(label)) || quickRepliesEnabled(api, label),
+    ]));
     let set = api.getSetByName(name);
     if (!set) set = await api.createSet(name, { disableSend: false, injectInput: false, placeBeforeInput: false });
     // Native QR executes slash commands without inserting them into the draft.
     // Keep existing replies and never recreate a user's already populated set.
-    for (const [label, message] of replies) {
+    for (const [label, message] of allReplies) {
         const existing = api.getQrByLabel(name, label);
         const isHidden = !visible.get(label);
-        if (!existing) api.createQuickReply(name, label, { message, isHidden, showLabel: true });
-        else if (existing.isHidden !== isHidden) api.updateQuickReply(name, label, { isHidden });
+        if (existing) {
+            if (existing.isHidden !== isHidden) api.updateQuickReply(name, label, { isHidden });
+        } else if (!isHidden || defaultLabels.includes(label)) {
+            api.createQuickReply(name, label, { message, isHidden, showLabel: true });
+        }
     }
     await set.save();
     if (!api.listGlobalSets().includes(name)) api.addGlobalSet(name, true);

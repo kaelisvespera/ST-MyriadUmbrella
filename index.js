@@ -10,6 +10,10 @@ import { installTheme } from './src/theme.js';
 import { installPresetToggles } from './src/preset-toggles.js';
 import { installCharacterFolders } from './src/character-folders.js';
 import { installTauriBack } from './src/tauri-back.js';
+import { installDetailsCollapse } from './src/details-collapse.js';
+import { registerChatNavigationCommands } from './src/chat-navigation.js';
+
+export { registerDetailsCollapse } from './src/details-collapse.js';
 
 let sendReroll = null;
 let dock = null;
@@ -20,6 +24,7 @@ let home = null;
 let cleanupPresetToggles = null;
 let cleanupCharacterFolders = null;
 let cleanupTauriBack = null;
+let cleanupDetailsCollapse = null;
 
 function apply() {
     const config = readConfig();
@@ -27,6 +32,8 @@ function apply() {
     if (config.dock && !dock) dock = installDock();
     if (config.editor && !editor) editor = installEditor();
     if (!config.editor && editor) { editor(); editor = null; }
+    if (config.detailsCollapse && !cleanupDetailsCollapse) cleanupDetailsCollapse = installDetailsCollapse();
+    if (!config.detailsCollapse && cleanupDetailsCollapse) { cleanupDetailsCollapse(); cleanupDetailsCollapse = null; }
     if (config.sendReroll && !sendReroll) sendReroll = installSendReroll();
     if (!config.sendReroll && sendReroll) { sendReroll.destroy(); sendReroll = null; }
     applyToast(config.toast);
@@ -48,6 +55,7 @@ function init() {
     });
     cleanupTauriBack = installTauriBack(() => home?.handleBack() || dock?.handleBack?.());
     registerCommands();
+    registerChatNavigationCommands();
     void migrateQuickReplies().catch(error => { console.error('[千机伞] QR 集合更名失败', error); notify(error.message, 'warning'); });
     apply();
 }
@@ -58,6 +66,7 @@ export function disable() {
     cleanupTauriBack?.(); cleanupTauriBack = null;
     cleanupCharacterFolders?.(); cleanupCharacterFolders = null;
     cleanupPresetToggles?.(); cleanupPresetToggles = null;
+    cleanupDetailsCollapse?.(); cleanupDetailsCollapse = null;
     sendReroll?.destroy(); sendReroll = null;
     home?.destroy(); home = null;
     dock?.destroy(); dock = null;

@@ -10,6 +10,8 @@ export function mountToolbox(root, { apply, manageDock, addDock, revealDock }) {
       <div class="feature"><label class="feature-switch"><span>QR 重新生成</span><input type="checkbox" data-qr="重新生成" aria-label="在 QR 栏显示重新生成"></label><label class="feature-switch"><span>QR 回退输入</span><input type="checkbox" data-qr="回退输入" aria-label="在 QR 栏显示回退输入"></label></div>
       <div class="feature"><label class="feature-switch"><span>发送旁重 roll</span><input type="checkbox" data-setting="sendReroll" aria-label="发送旁重 roll"></label><div class="feature-body">单击重新生成 · 双击全流程重 roll · 长按回填修改</div></div>
       <div class="feature"><label class="feature-switch"><span>正文局部编辑</span><input type="checkbox" data-setting="editor" aria-label="正文局部编辑"></label></div>
+      <div class="feature"><label class="feature-switch"><span>折叠区块底部收起</span><input type="checkbox" data-setting="detailsCollapse" aria-label="折叠区块底部收起"></label></div>
+      <div class="feature"><label class="feature-switch"><span>QR 回顶</span><input type="checkbox" data-qr="回顶" aria-label="在 QR 栏显示回顶"></label><label class="feature-switch"><span>QR 回底</span><input type="checkbox" data-qr="回底" aria-label="在 QR 栏显示回底"></label><label class="feature-switch"><span>QR 回楼层</span><input type="checkbox" data-qr="回楼层" aria-label="在 QR 栏显示回楼层"></label></div>
       <div class="feature"><label class="feature-switch"><span>角色卡文件夹</span><input type="checkbox" data-setting="foldersEnabled" aria-label="角色卡文件夹"></label></div>
       <div class="feature"><label class="feature-switch"><span>随卡保存预设开关</span><input type="checkbox" data-setting="presetToggles" aria-label="随卡保存预设开关"></label></div>
       <details class="feature"><summary><i class="fa-solid fa-chevron-right" aria-hidden="true"></i><span>通知外观</span></summary>
