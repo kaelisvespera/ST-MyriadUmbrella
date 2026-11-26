@@ -52,8 +52,7 @@ function centerIfOutside(scroller, rect, top, bottom, scroll) {
     const offset = Math.max(0, Math.min(scroller.scrollHeight - scroller.clientHeight,
         current + (rect.top + rect.bottom - top - bottom) / 2));
     if (Math.abs(offset - current) < 1) return rect;
-    const behavior = scroller.ownerDocument.defaultView?.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth';
-    scroll({ top: offset, behavior });
+    scroll({ top: offset, behavior: 'instant' });
     return { top: rect.top + current - offset, bottom: rect.bottom + current - offset };
 }
 
@@ -89,7 +88,6 @@ function reveal(control, chat) {
 function observeCollapse(root, chat, frameDocument = null) {
     const frameStyle = frameDocument ? createStyle(frameDocument) : null;
     const frames = new Map();
-    let scrollFrame = 0;
 
     function watchFrame(frame) {
         let binding = frames.get(frame);
@@ -142,16 +140,14 @@ function observeCollapse(root, chat, frameDocument = null) {
             event.preventDefault();
             event.stopPropagation();
             if (!root.contains(button)) return;
-            const restoreFocus = button.ownerDocument.activeElement === button;
+            const restoreFocus = event.detail === 0 && button.ownerDocument.activeElement === button;
             if (native) target.open = false;
             else top.click();
             sync(target);
             if (!top) return;
             if (restoreFocus) top.focus({ preventScroll: true });
-            cancelAnimationFrame(scrollFrame);
-            scrollFrame = requestAnimationFrame(() => {
-                if (root.contains(top)) reveal(top, chat);
-            });
+            // Move to the header before the collapsed block's replacement content can paint.
+            if (root.contains(top)) reveal(top, chat);
         });
         if (native) target.append(button);
         else pre.after(button);
@@ -190,7 +186,6 @@ function observeCollapse(root, chat, frameDocument = null) {
     initial.forEach(sync);
     return () => {
         observer.disconnect();
-        cancelAnimationFrame(scrollFrame);
         for (const [frame, binding] of frames) stopFrame(frame, binding);
         root.querySelectorAll(`[${OWNED}]`).forEach(button => button.remove());
         frameStyle?.remove();

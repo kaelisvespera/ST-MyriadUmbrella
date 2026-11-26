@@ -1,6 +1,6 @@
 import { BALL_SIZE, DOCK_Z_INDEX, HUB_SIZE, RAIL_PADDING, SLOT_GAP, SLOT_SIZE, layoutDock, settleDock } from './dock-geometry.js';
 import { actionTarget, findTarget, fingerprint, floatingTarget, holdTarget, placeTarget, releaseTarget, suppressCoordinateStart, targetKey } from './dock-targets.js';
-import { activateCompatibleTarget, dockCompatibility, dropCompatibleTarget, prepareCompatibleTarget, NATIVE_DOCK_EVENT } from './dock-compat.js';
+import { activateCompatibleTarget, dockCompatibility, dropCompatibleTarget, prepareCompatibleTarget, NATIVE_DOCK_EVENT, REQUEST_BADGE } from './dock-compat.js';
 import { readConfig, writeConfig } from './config.js';
 import { notify } from './host.js';
 import { bindPressActions } from './press.js';
@@ -75,12 +75,12 @@ function isSourceAvailable(element, control, binding, checkComputedDisplay = fal
     return (dockHides || !hidden(element)) && (control === element || !hidden(control));
 }
 
-export function installDock() {
+export function installDock({ onDrop } = {}) {
     const { host, root } = shadowHost('st-tools-dock', css);
     const nativeTouchStyle = document.createElement('style');
     // The original badge's pointer handlers need touch panning disabled before
     // pointerdown, including when the badge appears after the dock starts.
-    nativeTouchStyle.textContent = '#rlog-badge-host.rlog-badge-host.rlog-floating-button[script_id="recent-request-log-badge"][role="button"]{touch-action:none!important}';
+    nativeTouchStyle.textContent = `${REQUEST_BADGE}{touch-action:none!important}`;
     document.head.append(nativeTouchStyle);
     root.innerHTML += '<div class="rail closed" aria-hidden="true"></div><div class="list" role="group" aria-label="已收纳的悬浮球" hidden></div><button type="button" class="hub" aria-label="点击展开收纳；长按管理"></button><button type="button" class="empty" aria-label="添加悬浮球" title="添加悬浮球" hidden>+</button><div class="pick-note" hidden>点一下要收纳的悬浮球 <button type="button">取消</button></div>';
     document.body.append(host);
@@ -171,6 +171,7 @@ export function installDock() {
             dropCompatibleTarget(binding.element, point, pointer);
         } else releaseTarget(binding, point);
         bindings.delete(key);
+        if (point) onDrop?.(binding.element);
     }
     function bindItems() {
         observer.disconnect();

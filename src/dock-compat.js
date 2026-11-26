@@ -1,9 +1,10 @@
 import { getHost } from './host.js';
 
 export const NATIVE_DOCK_EVENT = Symbol('dock native drag');
+export const REQUEST_BADGE = '#rlog-badge-host.rlog-badge-host.rlog-floating-button[script_id="recent-request-log-badge"][role="button"]';
 
 const targets = [
-    { selector: '#rlog-badge-host.rlog-badge-host.rlog-floating-button[script_id="recent-request-log-badge"][role="button"]', elementId: 'rlog-badge-host', nativeDrop: true, originalStyles: ['left', 'top', 'display'] },
+    { selector: REQUEST_BADGE, elementId: 'rlog-badge-host', nativeDrop: true, originalStyles: ['left', 'top', 'display'] },
     { selector: '#lachesis-ball-host .lx-ball', container: '#lachesis-ball-host', script: '拉刻西斯悬浮球', button: '拉刻西斯', coordinates: true },
     { selector: '#lx-player-host .lx-deck-launcher', container: '#lx-player-host', script: '拉刻西斯播放器', button: '播放器' },
     { selector: '.lx-cat-ball', nativeDrop: true },

@@ -1,6 +1,7 @@
 import { installSendReroll } from './src/send-reroll.js';
 import { readConfig } from './src/config.js';
 import { installDock } from './src/dock.js';
+import { installFloatingPositions } from './src/floating-positions.js';
 import { installEditor } from './src/editor.js';
 import { getHost, notify } from './src/host.js';
 import { migrateQuickReplies, registerCommands } from './src/reroll.js';
@@ -17,6 +18,7 @@ export { registerDetailsCollapse } from './src/details-collapse.js';
 
 let sendReroll = null;
 let dock = null;
+let floatingPositions = null;
 let editor = null;
 let initialized = false;
 let cleanupTheme = null;
@@ -28,8 +30,10 @@ let cleanupDetailsCollapse = null;
 
 function apply() {
     const config = readConfig();
+    if (floatingPositions && !config.floatingPositions) { floatingPositions.destroy(); floatingPositions = null; }
+    if (config.floatingPositions && !floatingPositions) floatingPositions = installFloatingPositions();
     if (dock && !config.dock) { dock.destroy(); dock = null; }
-    if (config.dock && !dock) dock = installDock();
+    if (config.dock && !dock) dock = installDock({ onDrop: element => floatingPositions?.rememberDrop(element) });
     if (config.editor && !editor) editor = installEditor();
     if (!config.editor && editor) { editor(); editor = null; }
     if (config.detailsCollapse && !cleanupDetailsCollapse) cleanupDetailsCollapse = installDetailsCollapse();
@@ -69,6 +73,7 @@ export function disable() {
     cleanupDetailsCollapse?.(); cleanupDetailsCollapse = null;
     sendReroll?.destroy(); sendReroll = null;
     home?.destroy(); home = null;
+    floatingPositions?.destroy(); floatingPositions = null;
     dock?.destroy(); dock = null;
     editor?.(); editor = null;
     applyToast('off');

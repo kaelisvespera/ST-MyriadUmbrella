@@ -7,6 +7,7 @@ export function mountToolbox(root, { apply, manageDock, addDock, revealDock }) {
     root.innerHTML = `
       <details class="feature"><summary><i class="fa-solid fa-chevron-right" aria-hidden="true"></i><span>悬浮球收纳</span><input type="checkbox" data-setting="dock" aria-label="启用悬浮球收纳"></summary>
       <div class="feature-body"><div class="row"><button type="button" data-reveal>显示收纳球</button><button type="button" data-manage>管理</button><button type="button" data-add>点选添加</button></div></div></details>
+      <div class="feature"><label class="feature-switch"><span>记住悬浮球位置</span><input type="checkbox" data-setting="floatingPositions" aria-label="记住悬浮球位置"></label></div>
       <div class="feature"><label class="feature-switch"><span>QR 重新生成</span><input type="checkbox" data-qr="重新生成" aria-label="在 QR 栏显示重新生成"></label><label class="feature-switch"><span>QR 回退输入</span><input type="checkbox" data-qr="回退输入" aria-label="在 QR 栏显示回退输入"></label></div>
       <div class="feature"><label class="feature-switch"><span>发送旁重 roll</span><input type="checkbox" data-setting="sendReroll" aria-label="发送旁重 roll"></label><div class="feature-body">单击重新生成 · 双击全流程重 roll · 长按回填修改</div></div>
       <div class="feature"><label class="feature-switch"><span>正文局部编辑</span><input type="checkbox" data-setting="editor" aria-label="正文局部编辑"></label></div>

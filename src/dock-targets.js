@@ -62,7 +62,11 @@ export function floatingTarget(event) {
 }
 
 const owned = ['position', 'left', 'top', 'right', 'bottom', 'z-index', 'transform', 'transform-origin', 'scale', 'clip-path', 'opacity', 'visibility', 'pointer-events', 'transition'];
+const docked = new WeakSet();
 
+export function isDockedTarget(element) {
+    return docked.has(element);
+}
 
 function collectAppearance(element, control, compatibility) {
     const ink = 'var(--st-tools-ink,var(--SmartThemeBodyColor,currentColor))';
@@ -119,6 +123,7 @@ function collectAppearance(element, control, compatibility) {
 }
 
 export function holdTarget(element) {
+    docked.add(element);
     const rect = element.getBoundingClientRect();
     const prior = new Map(owned.map(key => [key, { value: element.style.getPropertyValue(key), priority: element.style.getPropertyPriority(key) }]));
     const control = actionTarget(element);
@@ -174,6 +179,7 @@ export function placeTarget(binding, rect, show) {
 }
 
 export function releaseTarget(binding, point) {
+    docked.delete(binding.element);
     binding.collectedStyle?.remove();
     for (const [key, old] of binding.prior) {
         restore(binding.element, key, old);
