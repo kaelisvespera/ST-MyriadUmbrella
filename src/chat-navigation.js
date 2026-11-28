@@ -181,6 +181,7 @@ export function installReplyLocation() {
     let sendFrame = 0;
     let chatTouch = null;
     const hidden = () => document.visibilityState === 'hidden';
+    const chatVisible = container => !hidden() && (!tauri || getComputedStyle(container).visibility === 'visible');
     const nativeAutoScroll = () => tauri && getHost().powerUserSettings?.auto_scroll_chat_to_bottom === true;
     const sentRows = new MutationObserver(scheduleSendCheck);
     const sendLayout = new ResizeObserver(scheduleSendCheck);
@@ -367,17 +368,19 @@ export function installReplyLocation() {
         return pending === run && !run.cancelled && !run.signal?.aborted && isSameChat(run.session);
     }
 
-    async function confirmFinalPosition(session, id, before, isTarget) {
-        if (!nativeAutoScroll()) return;
+    async function confirmFinalPosition(session, id, isTarget) {
+        if (!tauri) return;
+        // TT can remeasure the chat when a theme font finishes loading.
+        if (document.fonts?.status === 'loading') await document.fonts.ready;
         await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)));
-        if (!isTarget() || !nativeAutoScroll()) return;
+        if (!isTarget()) return;
         const { container } = session;
         const row = container.querySelector(messageSelector(id));
         if (!row || !row.getBoundingClientRect().height || !container.clientHeight) return;
-        const target = container.scrollTop + row.getBoundingClientRect().top - viewportTop(container) - before;
+        const target = container.scrollTop + row.getBoundingClientRect().top - viewportTop(container) - replyLeadIn(container);
         const bottom = Math.max(0, container.scrollHeight - container.clientHeight);
         const clamped = Math.max(0, Math.min(bottom, target));
-        // A native follow frame may still land after the first alignment.
+        // Scrolling can lay out deferred history rows and move the target.
         if (Math.abs(container.scrollTop - clamped) > 2) scrollTo(session, clamped, 'instant');
     }
 
@@ -395,6 +398,8 @@ export function installReplyLocation() {
                 const isTarget = () => current(run) && !hidden() && run.reply === reply && chat[reply.id] === reply.message
                     && (reply.isRewritten ? reply.isRewritten() : chat.findLastIndex(message => message?.is_user) < reply.id);
                 if (!isTarget()) { reset(); return; }
+                // A theme can hide the chat behind a full-screen drawer without resizing it.
+                if (!chatVisible(container)) return;
                 if (!container.clientHeight) { layout.observe(container); return; }
                 const row = container.querySelector(messageSelector(reply.id));
                 if (row && !row.getBoundingClientRect().height) { layout.observe(row); return; }
@@ -417,13 +422,14 @@ export function installReplyLocation() {
                 content.disconnect();
                 run.locating = true;
                 const before = replyLeadIn(container);
-                void goToFloor(session, reply.id, { before, behavior: 'instant', isTarget })
-                    .then(() => confirmFinalPosition(session, reply.id, before, isTarget))
+                const canScroll = () => isTarget() && chatVisible(container);
+                void goToFloor(session, reply.id, { before, behavior: 'instant', isTarget: canScroll })
+                    .then(() => confirmFinalPosition(session, reply.id, canScroll))
                     .catch(error => { if (isTarget()) console.warn('[千机伞] 定位新消息失败', error); })
                     .finally(() => {
                         if (pending !== run) return;
                         run.locating = false;
-                        if (!hidden()) reset();
+                        if (chatVisible(container)) reset();
                     });
             });
         });
@@ -510,6 +516,7 @@ export function installReplyLocation() {
         }
     }, { signal: input.signal });
     window.addEventListener('pageshow', () => { scheduleSendCheck(); locateWhenVisible(); }, { signal: input.signal });
+    window.addEventListener('tt-drawer-state-change', locateWhenVisible, { capture: true, signal: input.signal });
     const interrupt = event => {
         if (!hidden() && event.target.closest?.('#chat')) cancel();
     };

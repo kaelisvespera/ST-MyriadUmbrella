@@ -3,9 +3,9 @@
   "loading_order": 200,
   "requires": [],
   "optional": [],
-  "js": "src/runtime.bundle.js?v=20261126.frontend-0.1.15",
+  "js": "src/runtime.bundle.js?v=20261128.frontend-0.1.16",
   "author": "Atonal",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "auto_update": false,
   "hooks": { "disable": "disable", "chatSurface": "registerDetailsCollapse" }
 }
