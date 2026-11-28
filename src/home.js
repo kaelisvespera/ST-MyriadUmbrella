@@ -45,7 +45,7 @@ export function installHome(actions) {
         library = mountLibrary(char, body, root.querySelector('.home-search'), layouts);
         const outside = action => () => { close(); action(); };
         const toolbox = mountToolbox(tools, { ...actions, manageDock: outside(actions.manageDock), addDock: outside(actions.addDock),
-            revealDock: outside(actions.revealDock), managePresetGroups: outside(actions.managePresetGroups) });
+            revealDock: outside(actions.revealDock) });
         const scroll = { char: 0, tools: 0 };
         let active = 'char';
         for (const tab of root.querySelectorAll('[data-tab]')) tab.addEventListener('click', () => {

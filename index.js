@@ -49,6 +49,7 @@ function apply() {
     if (config.presetToggles && !cleanupPresetToggles) cleanupPresetToggles = installPresetToggles();
     if (!config.presetToggles && cleanupPresetToggles) { cleanupPresetToggles(); cleanupPresetToggles = null; }
     if (config.presetGrouping && !presetGroups) presetGroups = installPresetGroups();
+    if (config.presetGrouping) presetGroups.update(config);
     if (!config.presetGrouping && presetGroups) { presetGroups.destroy(); presetGroups = null; }
     if (config.foldersEnabled && !cleanupCharacterFolders) cleanupCharacterFolders = installCharacterFolders();
     if (!config.foldersEnabled && cleanupCharacterFolders) { cleanupCharacterFolders(); cleanupCharacterFolders = null; }
@@ -63,7 +64,6 @@ function init() {
         manageDock: () => dock ? dock.manage() : notify('先勾选“悬浮球收纳”，再管理收纳。'),
         addDock: () => dock ? dock.pick() : notify('先勾选“悬浮球收纳”，再点选添加。'),
         revealDock: () => dock ? dock.reveal() : notify('先勾选“悬浮球收纳”，再显示收纳球。'),
-        managePresetGroups: () => presetGroups?.open(),
     });
     cleanupTauriBack = installTauriBack(() => home?.handleBack() || dock?.handleBack?.());
     registerCommands();

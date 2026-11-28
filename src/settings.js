@@ -2,7 +2,7 @@ import { readConfig, writeConfig } from './config.js';
 import { notify } from './host.js';
 import { quickRepliesEnabled, setQuickRepliesEnabled } from './reroll.js';
 
-export function mountToolbox(root, { apply, manageDock, addDock, revealDock, managePresetGroups }) {
+export function mountToolbox(root, { apply, manageDock, addDock, revealDock }) {
     root.classList.add('toolbox');
     root.innerHTML = `
       <section class="tool-group" aria-labelledby="tools-chat-title">
@@ -47,8 +47,9 @@ export function mountToolbox(root, { apply, manageDock, addDock, revealDock, man
           <label class="tool-control"><span>角色卡文件夹</span><input type="checkbox" data-setting="foldersEnabled"></label>
           <label class="tool-control"><span>随卡保存预设开关</span><input type="checkbox" data-setting="presetToggles"></label>
           <label class="tool-control"><span>预设分组</span><input type="checkbox" data-setting="presetGrouping"></label>
-          <div class="tool-actions" data-preset-group-actions hidden>
-            <button type="button" data-manage-preset-groups>管理预设分组</button>
+          <div data-preset-group-actions hidden>
+            <label class="tool-control"><span>手机预设条目整条拖拽</span><input type="checkbox" data-setting="presetMobileWholeRowDrag"></label>
+            <label class="tool-control"><span>分组后把编辑按钮收进菜单</span><input type="checkbox" data-setting="presetGroupingEditButtonInMenu"></label>
           </div>
         </div>
       </section>
@@ -78,7 +79,6 @@ export function mountToolbox(root, { apply, manageDock, addDock, revealDock, man
     root.querySelector('[data-manage]').addEventListener('click', manageDock);
     root.querySelector('[data-add]').addEventListener('click', addDock);
     root.querySelector('[data-reveal]').addEventListener('click', revealDock);
-    root.querySelector('[data-manage-preset-groups]').addEventListener('click', managePresetGroups);
     const replies = root.querySelectorAll('[data-qr]');
     const refresh = () => { for (const qr of replies) qr.checked = quickRepliesEnabled(undefined, qr.dataset.qr); };
     refresh();

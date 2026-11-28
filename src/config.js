@@ -2,7 +2,7 @@ import { getHost } from './host.js';
 
 // Retain the existing key so renaming the extension keeps users' settings.
 export const KEY = 'st_tavern_tools';
-const defaults = { dock: false, floatingPositions: false, sendReroll: false, locateReply: false, editor: false, detailsCollapse: false, toast: 'off', dockItems: [], presetToggles: false, presetGrouping: false, foldersEnabled: false, charLayout: 'grid' };
+const defaults = { dock: false, floatingPositions: false, sendReroll: false, locateReply: false, editor: false, detailsCollapse: false, toast: 'off', dockItems: [], presetToggles: false, presetGrouping: false, presetGroupingEditButtonInMenu: false, presetMobileWholeRowDrag: true, presetVueDragLocked: false, foldersEnabled: false, charLayout: 'grid' };
 
 export function readConfig() {
     const config = { ...defaults, ...getHost().extensionSettings[KEY] };
