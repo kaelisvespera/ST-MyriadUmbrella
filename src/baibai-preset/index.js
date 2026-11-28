@@ -7,7 +7,12 @@ import { configurePresetOptimizations, settings, setPresetGroupingEnabled } from
 import { applyPresetGrouping, rebuildPresetVuePromptListDraggable, refreshPresetVuePromptListControlsLayout, schedulePresetVuePromptListManagerSync } from './preset/vueList.js';
 
 const refresh = () => schedulePresetVuePromptListManagerSync(0);
-const hostEvents = [event_types.OAI_PRESET_CHANGED_AFTER, event_types.MAIN_API_CHANGED].filter(Boolean);
+const hostEvents = [
+    event_types.OAI_PRESET_CHANGED_AFTER,
+    event_types.MAIN_API_CHANGED,
+    event_types.CHATCOMPLETION_MODEL_CHANGED,
+    event_types.CHATCOMPLETION_SOURCE_CHANGED,
+].filter(Boolean);
 
 export function enablePresetGrouping(config, saveDragLock) {
     const enabled = settings.presetGroupingEnabled;

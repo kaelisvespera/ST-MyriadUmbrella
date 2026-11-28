@@ -1,15 +1,65 @@
 import * as scriptModule from '@sillytavern/script';
 import { getCurrentChatId, getRequestHeaders } from '@sillytavern/script';
 import { oai_settings, promptManager } from '@sillytavern/scripts/openai';
-import { getTokenizerModel } from '@sillytavern/scripts/tokenizers';
+import * as hostTokenizers from '@sillytavern/scripts/tokenizers';
 import { getStringHash } from '@sillytavern/scripts/utils';
-import { BAIBAOKU_TOKENIZER_BULK_COUNT_URL, OPENAI_TOKENIZER_BULK_AJAX_BATCH_DELAY_MS, OPENAI_TOKENIZER_BULK_BRIDGE_KEY, OPENAI_TOKENIZER_BULK_CACHE_LIMIT, OPENAI_TOKENIZER_BULK_CIRCUIT_BREAKER_MS, OPENAI_TOKENIZER_BULK_FAILURE_THRESHOLD, OPENAI_TOKENIZER_BULK_PREPARE_CHUNK_SIZE, OPENAI_TOKENIZER_BULK_PREPARE_MAX_MESSAGES, PRESET_CONTEXT_TOKEN_REFRESH_SELF_SUPPRESS_MS, PRESET_PROMPT_MANAGER_LIST_SELECTOR, PROMPT_MANAGER_TOKEN_REFRESH_BUSY_DELAY_MS, PROMPT_MANAGER_TOKEN_REFRESH_DEFAULT_DELAY_MS, PROMPT_MANAGER_TOKEN_REFRESH_FAST_DELAY_MS, PROMPT_MANAGER_TOKEN_REFRESH_QUEUE_KEY } from './constants.js';
+import { BAIBAOKU_TOKENIZER_BULK_COUNT_URL, OPENAI_TOKENIZER_BULK_AJAX_BATCH_DELAY_MS, OPENAI_TOKENIZER_BULK_BRIDGE_KEY, OPENAI_TOKENIZER_BULK_CACHE_LIMIT, OPENAI_TOKENIZER_BULK_CIRCUIT_BREAKER_MS, OPENAI_TOKENIZER_BULK_FAILURE_THRESHOLD, OPENAI_TOKENIZER_BULK_PREPARE_CHUNK_SIZE, OPENAI_TOKENIZER_BULK_PREPARE_MAX_MESSAGES, PRESET_CONTEXT_INJECTION_PROMPT_IDS, PRESET_CONTEXT_TOKEN_REFRESH_SELF_SUPPRESS_MS, PRESET_PROMPT_MANAGER_LIST_SELECTOR, PROMPT_MANAGER_TOKEN_REFRESH_BUSY_DELAY_MS, PROMPT_MANAGER_TOKEN_REFRESH_DEFAULT_DELAY_MS, PROMPT_MANAGER_TOKEN_REFRESH_FAST_DELAY_MS, PROMPT_MANAGER_TOKEN_REFRESH_QUEUE_KEY } from './constants.js';
 import { updatePromptTokenCell } from './saveToggle.js';
 import { LOG_PREFIX, extensionState, settings } from './state.js';
 import { arePromptManagerTokenCountsCurrent, calculatePresetEffectivePromptTokenTotal, getPresetContextTokenRefreshState, getPresetEffectiveTokenCountSignature, getPromptTokenWarning, hasPromptManagerTokenContext, isPromptManagerReadyForFastPresetSwitch, refreshPromptManagerTokensForMissingContext, renderPromptManagerListWithoutTokenStats, updatePresetEffectiveTokenHeaderDisplay, waitForNextPaint } from './switchFast.js';
 import { isPresetGenerationActive } from './util.js';
 import { getPresetVuePromptListManagerState, isPresetVuePromptListDragging, isPresetVuePromptListManagerActive, syncPresetVuePromptListManagerState } from './vueList.js';
 import { getPresetVuePromptItemsFromModel, handlePresetVuePromptRangeSelectionClick } from './vueModel.js';
+
+// Preset-only counts must stay separate from the native preview and its context counts.
+export async function refreshPresetTokenCounts(model) {
+    const serviceSettings = promptManager.serviceSettings;
+    const order = promptManager.getPromptOrderForCharacter(promptManager.activeCharacter) ?? [];
+    const prompts = new Map((serviceSettings.prompts ?? []).filter(Boolean).map(prompt => [prompt.identifier, prompt]));
+    const entries = [];
+    const counts = Object.create(null);
+    for (const entry of order) {
+        const identifier = entry?.identifier;
+        const prompt = prompts.get(identifier);
+        if (!prompt || PRESET_CONTEXT_INJECTION_PROMPT_IDS.has(identifier)) continue;
+        counts[identifier] = 0;
+        const content = typeof prompt.content === 'string' ? prompt.content : '';
+        const fields = prompt.fields && typeof prompt.fields === 'object' && !Array.isArray(prompt.fields)
+            ? prompt.fields : null;
+        if (prompt.marker || (!content && !fields)) continue;
+        entries.push([identifier, { ...fields, role: prompt.role || 'system', content }]);
+    }
+
+    entries.sort(([left], [right]) => left.localeCompare(right));
+    const signature = JSON.stringify([hostTokenizers.getTokenizerModel(serviceSettings), Object.keys(counts).sort(), entries]);
+    if (model.presetTokens?.signature === signature && model.presetTokens.status !== 'error') return;
+
+    model.presetTokens = { signature, status: 'pending', counts: null };
+    const request = model.presetTokens;
+    try {
+        const messages = entries.map(([, message]) => message);
+        const tokenHandler = promptManager.tokenHandler;
+        let results = [];
+        if (messages.length) {
+            // TT 2.5 counts each message in one batch using the host token framing and cache.
+            results = typeof tokenHandler?.countEachAsync === 'function'
+                ? await tokenHandler.countEachAsync(messages)
+                : await Promise.all(messages.map(message => hostTokenizers.countTokensOpenAIAsync(message, false, serviceSettings)));
+        }
+        if (model.presetTokens !== request || getPresetVuePromptListManagerState().state !== model) return;
+        if (results.length !== entries.length || !results.every(Number.isFinite)) {
+            throw new Error('Invalid host preset token counts');
+        }
+        entries.forEach(([identifier], index) => {
+            counts[identifier] = Math.max(0, Math.round(results[index]));
+        });
+        model.presetTokens = { signature, status: 'ready', counts };
+    } catch (error) {
+        if (model.presetTokens !== request || getPresetVuePromptListManagerState().state !== model) return;
+        console.debug(LOG_PREFIX + ' Failed to count preset tokens', error);
+        model.presetTokens = { signature, status: 'error', counts: null };
+    }
+}
 
 function installOpenAITokenizerBulkBridge() {
     const state = getOpenAITokenizerBulkState();
@@ -345,7 +395,7 @@ function getPromptManagerTokenRefreshSignature() {
             : `${chat.length}:`;
 
         return [
-            getTokenizerModel(),
+            hostTokenizers.getTokenizerModel(),
             getCurrentChatId?.() || '',
             serviceSettings?.preset_settings_openai || oai_settings?.preset_settings_openai || '',
             serviceSettings?.openai_max_context ?? '',
@@ -576,7 +626,7 @@ function getOpenAITokenizerBulkAjaxHit(options) {
     const state = getOpenAITokenizerBulkState();
     const url = toOpenAITokenizerUrl(options?.url);
     const message = getOpenAITokenizerAjaxMessage(options);
-    const model = url?.searchParams?.get('model') || getTokenizerModel();
+    const model = url?.searchParams?.get('model') || hostTokenizers.getTokenizerModel();
 
     if (!message || !model) {
         state.stats.ajaxMisses += 1;
@@ -713,7 +763,7 @@ async function prepareOpenAITokenizerBulkMessages(context = {}) {
         return false;
     }
 
-    const model = getTokenizerModel();
+    const model = hostTokenizers.getTokenizerModel();
     const messages = await collectOpenAITokenizerBulkMessages(context);
     const uniqueMessages = [];
     const seen = new Set();
@@ -769,7 +819,7 @@ async function prepareOpenAITokenizerWorldInfoBudgetCounts(context = {}) {
         return false;
     }
 
-    const model = getTokenizerModel();
+    const model = hostTokenizers.getTokenizerModel();
     const messages = collectOpenAITokenizerWorldInfoBudgetMessages(context);
     const uniqueMessages = [];
     const seen = new Set();

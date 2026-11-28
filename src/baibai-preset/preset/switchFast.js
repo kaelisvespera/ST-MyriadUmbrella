@@ -906,19 +906,6 @@ function isPresetPromptIncludedInEffectiveTokenTotal(prompt, orderEntry, groupCo
     return group?.enabled !== false;
 }
 
-function normalizePresetEffectiveTokenCount(value) {
-    if (value === null) {
-        return null;
-    }
-
-    if (value === undefined) {
-        return 0;
-    }
-
-    const tokens = Number(value);
-    return Number.isFinite(tokens) && tokens >= 0 ? Math.round(tokens) : 0;
-}
-
 function getPresetEffectiveTokenCountSignature() {
     try {
         const serviceSettings = promptManager?.serviceSettings ?? oai_settings;
@@ -967,48 +954,25 @@ function arePromptManagerTokenCountsCurrent() {
 }
 
 function calculatePresetEffectivePromptTokenTotal() {
-    const counts = promptManager?.tokenHandler?.getCounts?.();
-    const promptOrder = promptManager?.getPromptOrderForCharacter?.(promptManager.activeCharacter) ?? [];
-    const prompts = Array.isArray(promptManager?.serviceSettings?.prompts)
-        ? promptManager.serviceSettings.prompts.filter(Boolean)
-        : [];
-
-    if (!counts || !promptOrder.length || !prompts.length) {
-        return null;
-    }
-
-    const promptById = new Map(prompts.map(prompt => [prompt.identifier, prompt]));
-    const allowCurrentCounts = arePromptManagerTokenCountsCurrent();
-
-    if (!allowCurrentCounts) {
-        return null;
-    }
-
+    const order = promptManager?.getPromptOrderForCharacter?.(promptManager.activeCharacter) ?? [];
+    const prompts = promptManager?.serviceSettings?.prompts ?? [];
+    const byId = new Map(prompts.filter(Boolean).map(prompt => [prompt.identifier, prompt]));
     const groupContext = getPresetEffectiveTokenGroupContext();
-    let total = 0;
-    let includedCount = 0;
+    const included = order.filter(entry => {
+        const prompt = byId.get(entry?.identifier);
+        return isPresetPromptIncludedInEffectiveTokenTotal(prompt, entry, groupContext)
+            && !prompt.marker && (prompt.content || prompt.fields);
+    });
+    if (included.length === 0) return 0;
 
-    for (const orderEntry of promptOrder) {
-        const prompt = promptById.get(orderEntry?.identifier);
-
-        if (!isPresetPromptIncludedInEffectiveTokenTotal(prompt, orderEntry, groupContext)) {
-            continue;
-        }
-
-        includedCount += 1;
-        const tokens = normalizePresetEffectiveTokenCount(counts[prompt.identifier]);
-
-        if (tokens === null) {
-            return null;
-        }
-
-        total += tokens;
-    }
-
-    return includedCount > 0 ? Math.round(total) : 0;
+    const stats = getPresetVuePromptListManagerState().state?.presetTokens;
+    if (stats?.status === 'error') return 'error';
+    if (!stats?.counts) return null;
+    return included.reduce((total, entry) => total + (stats.counts[entry.identifier] ?? 0), 0);
 }
 
 function formatPresetEffectiveTokenHeaderText(value) {
+    if (value === 'error') return '预设总Token: 暂不可用';
     if (value === null || value === undefined) {
         return PRESET_EFFECTIVE_TOKEN_HEADER_PENDING_TEXT;
     }
@@ -1132,7 +1096,6 @@ export {
     hasPromptManagerTokenContext,
     isPresetPromptIncludedInEffectiveTokenTotal,
     isPromptManagerReadyForFastPresetSwitch,
-    normalizePresetEffectiveTokenCount,
     refreshPromptManagerStaticTokensWithoutChatContext,
     refreshPromptManagerTokensForMissingContext,
     removePresetSwitchOptimization,

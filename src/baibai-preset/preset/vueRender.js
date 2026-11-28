@@ -461,6 +461,8 @@ function renderPresetVuePromptRow(h, item, { topLevel = false, groupChild = fals
     const rangeClasses = favoriteMirror ? [] : getPresetVuePromptRangeClasses(manager.state, item);
     const searchView = favoriteMirror ? null : getPresetVuePromptSearchView(manager.state);
     const searchRow = searchView?.rows.get(prompt.identifier) ?? null;
+    const presetCount = manager.state?.presetTokens?.counts?.[prompt.identifier];
+    const displayedTokens = presetCount === undefined ? item.calculatedTokens : String(presetCount || '-');
 
     return h('li', {
         class: [
@@ -497,13 +499,13 @@ function renderPresetVuePromptRow(h, item, { topLevel = false, groupChild = fals
         ]),
         h('span', {
             class: 'prompt_manager_prompt_tokens',
-            'data-pm-tokens': item.calculatedTokens,
+            'data-pm-tokens': displayedTokens,
         }, [
             h('span', {
                 class: item.warningClass,
                 title: item.warningTitle,
             }, ' '),
-            item.calculatedTokens,
+            displayedTokens,
         ]),
         searchRow?.snippet ? renderPresetVuePromptSearchSnippet(h, searchRow.snippet) : null,
     ]);

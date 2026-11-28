@@ -9,6 +9,7 @@ import { applyPresetGroupRenameCleanup, getCurrentPresetPromptOrderIds, getPrese
 import { clearPresetVuePromptOrderSaveSchedule, flushPendingPresetPromptChangesSafely, installPresetExportPendingChangesGuard, installPresetUpdatePendingChangesGuard, markPresetPromptServiceSettingsSavePending } from './pendingChanges.js';
 import { LOG_PREFIX, extensionState, savePresetOptimizationSettings, settings } from './state.js';
 import { isPromptManagerReadyForFastPresetSwitch, renderPromptManagerListItemsFast, schedulePromptManagerDraggableInit } from './switchFast.js';
+import { refreshPresetTokenCounts } from './tokenizer.js';
 import { isPresetGroupingEnabled } from './util.js';
 import { cancelPresetVuePromptGroupHeaderCustomDrag, clearPresetVuePromptDragReadyFeedback, clearPresetVuePromptManualDragState, installPresetVueDynamicDragDelayHandlers, removePresetVueDynamicDragDelayHandlers, setPresetVuePromptDragScrollGuardEnabled, setPresetVuePromptDragging } from './vueDrag.js';
 import { buildPresetVuePromptListItems, createPresetVuePromptListRootComponent } from './vueRender.js';
@@ -819,6 +820,7 @@ function createPresetVuePromptListModel() {
     return {
         globalLibrary: null,
         items: [],
+        presetTokens: null,
         listClassName: `text_pole ${PRESET_DRAG_READY_CLASS}`,
         renderKey: 0,
         reclaimKey: 0,
@@ -850,6 +852,7 @@ function syncPresetVuePromptListManagerState() {
     repairPresetPromptOrderDuplicatesIfNeeded();
     repairPresetPromptGroupStateIfNeeded();
     syncCurrentPresetPromptGroupStateToPresetExtensionField({ persist: false });
+    void refreshPresetTokenCounts(manager.state);
 
     const { renderSignature, structureSignature } = getPresetVuePromptListSyncSignatures(manager);
     if (renderSignature && manager.lastSyncSignature === renderSignature) {
