@@ -9,6 +9,7 @@ import { installHome } from './src/home.js';
 import { applyToast } from './src/toast.js';
 import { installTheme } from './src/theme.js';
 import { installPresetToggles } from './src/preset-toggles.js';
+import { installPresetGroups } from './src/preset-groups.js';
 import { installCharacterFolders } from './src/character-folders.js';
 import { installTauriBack } from './src/tauri-back.js';
 import { installDetailsCollapse } from './src/details-collapse.js';
@@ -24,6 +25,7 @@ let initialized = false;
 let cleanupTheme = null;
 let home = null;
 let cleanupPresetToggles = null;
+let presetGroups = null;
 let cleanupCharacterFolders = null;
 let cleanupTauriBack = null;
 let cleanupDetailsCollapse = null;
@@ -46,6 +48,8 @@ function apply() {
     applyToast(config.toast);
     if (config.presetToggles && !cleanupPresetToggles) cleanupPresetToggles = installPresetToggles();
     if (!config.presetToggles && cleanupPresetToggles) { cleanupPresetToggles(); cleanupPresetToggles = null; }
+    if (config.presetGrouping && !presetGroups) presetGroups = installPresetGroups();
+    if (!config.presetGrouping && presetGroups) { presetGroups.destroy(); presetGroups = null; }
     if (config.foldersEnabled && !cleanupCharacterFolders) cleanupCharacterFolders = installCharacterFolders();
     if (!config.foldersEnabled && cleanupCharacterFolders) { cleanupCharacterFolders(); cleanupCharacterFolders = null; }
 }
@@ -59,6 +63,7 @@ function init() {
         manageDock: () => dock ? dock.manage() : notify('先勾选“悬浮球收纳”，再管理收纳。'),
         addDock: () => dock ? dock.pick() : notify('先勾选“悬浮球收纳”，再点选添加。'),
         revealDock: () => dock ? dock.reveal() : notify('先勾选“悬浮球收纳”，再显示收纳球。'),
+        managePresetGroups: () => presetGroups?.open(),
     });
     cleanupTauriBack = installTauriBack(() => home?.handleBack() || dock?.handleBack?.());
     registerCommands();
@@ -73,6 +78,7 @@ export function disable() {
     cleanupTauriBack?.(); cleanupTauriBack = null;
     cleanupCharacterFolders?.(); cleanupCharacterFolders = null;
     cleanupPresetToggles?.(); cleanupPresetToggles = null;
+    presetGroups?.destroy(); presetGroups = null;
     cleanupDetailsCollapse?.(); cleanupDetailsCollapse = null;
     cleanupReplyLocation?.(); cleanupReplyLocation = null;
     sendReroll?.destroy(); sendReroll = null;

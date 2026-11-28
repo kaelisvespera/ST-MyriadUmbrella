@@ -2,7 +2,7 @@
 
 Android **0.2.5** 已正式发布：[下载安装包](https://github.com/atonal519/ST-MyriadUmbrella/releases/download/apk-v0.2.5/qianjisan-0.2.5.apk) · [源码与构建说明](android/README.md)。已有 0.1.6 及以上试用版可在 App 首页右上角检查更新，按系统提示覆盖安装。APK 与下方酒馆扩展分别更新。
 
-前端插件当前为 **0.1.17**，基于 Atonal 的千机伞 0.1.6，适配 TauriTavern 2.4.0。 [千机伞原版仓库](https://github.com/atonal519/ST-MyriadUmbrella)
+前端插件当前为 **0.1.18**，基于 Atonal 的千机伞 0.1.6，适配 TauriTavern 2.4.0 与 2.5.0。 [千机伞原版仓库](https://github.com/atonal519/ST-MyriadUmbrella)
 
 在酒馆的“扩展 → 安装扩展”中填入仓库地址，安装后刷新页面：
 
@@ -50,6 +50,13 @@ TT 移动端的主窗随宿主内容视口调整。使用系统返回时，已�
 开发验证：在酒馆安装目录的 `public/scripts/extensions/third-party/ST-MyriadUmbrella` 中运行 `npm test`，无需安装依赖。测试包含实际宿主 EventEmitter；可通过 `ST_UPSTREAM_REFERENCE=/path/to/SillyTavern npm test` 额外核对原生宿主参考代码。
 
 另已在 Chromium 隔离页加载原生 SillyTavern / Luker 的实际 HTML、CSS、千千结原悬浮球模块、完整最近请求插件及原生 Toastr，检查收纳显示、点击、拖入/拖出与恢复、局部编辑和通知交互。分类整理、原生“更多”菜单分发、实际 PromptManager 的开关处理与启用条目消费者也已覆盖。QR 使用内存测试接口，条目保存使用临时 HTTP 存储与宿主合并函数；隔离验证不等于实体手机或真实存档保存验收。
+
+## 0.1.18
+
+- 在「千机伞 → 工具箱 → 角色与预设」开启「预设分组」。管理面板也可以从对话补全预设页的「预设分组」打开。
+- 支持分组创建、范围建组、重命名、删除、折叠、整组暂停与恢复、条目跨组移动与重排。桌面可拖动，手机可用分组选择器和上移、下移按钮。
+- 收藏区的条目可快速启用、停用和编辑。分组及收藏随对应预设保存和导出。首次读取支持柏宝箱已随预设保存的分组和收藏数据。功能设计参考 [柏宝箱](https://github.com/baibai-git/ST-BaiBai-Tools)。
+- 整组暂停作用于普通对话补全和预览，保留每个条目原有的启停状态。TT Agent 的独立预设组装暂未接入。
 
 ## 0.1.17
 

@@ -2,7 +2,7 @@ import { readConfig, writeConfig } from './config.js';
 import { notify } from './host.js';
 import { quickRepliesEnabled, setQuickRepliesEnabled } from './reroll.js';
 
-export function mountToolbox(root, { apply, manageDock, addDock, revealDock }) {
+export function mountToolbox(root, { apply, manageDock, addDock, revealDock, managePresetGroups }) {
     root.classList.add('toolbox');
     root.innerHTML = `
       <section class="tool-group" aria-labelledby="tools-chat-title">
@@ -46,21 +46,31 @@ export function mountToolbox(root, { apply, manageDock, addDock, revealDock }) {
         <div class="tool-sheet">
           <label class="tool-control"><span>角色卡文件夹</span><input type="checkbox" data-setting="foldersEnabled"></label>
           <label class="tool-control"><span>随卡保存预设开关</span><input type="checkbox" data-setting="presetToggles"></label>
+          <label class="tool-control"><span>预设分组</span><input type="checkbox" data-setting="presetGrouping"></label>
+          <div class="tool-actions" data-preset-group-actions hidden>
+            <button type="button" data-manage-preset-groups>管理预设分组</button>
+          </div>
         </div>
       </section>
     `;
     const config = readConfig();
     const dock = root.querySelector('[data-setting="dock"]');
     const dockActions = root.querySelector('[data-dock-actions]');
+    const grouping = root.querySelector('[data-setting="presetGrouping"]');
+    const groupActions = root.querySelector('[data-preset-group-actions]');
+    const syncActions = () => {
+        dockActions.hidden = !dock.checked;
+        groupActions.hidden = !grouping.checked;
+    };
     for (const input of root.querySelectorAll('[data-setting]')) {
         input.checked = config[input.dataset.setting];
         input.addEventListener('change', () => {
             writeConfig({ [input.dataset.setting]: input.checked });
-            dockActions.hidden = !dock.checked;
+            syncActions();
             apply();
         });
     }
-    dockActions.hidden = !dock.checked;
+    syncActions();
     const toast = root.querySelector('[data-toast]');
     toast.value = config.toast;
     toast.addEventListener('change', () => { writeConfig({ toast: toast.value }); apply(); });
@@ -68,6 +78,7 @@ export function mountToolbox(root, { apply, manageDock, addDock, revealDock }) {
     root.querySelector('[data-manage]').addEventListener('click', manageDock);
     root.querySelector('[data-add]').addEventListener('click', addDock);
     root.querySelector('[data-reveal]').addEventListener('click', revealDock);
+    root.querySelector('[data-manage-preset-groups]').addEventListener('click', managePresetGroups);
     const replies = root.querySelectorAll('[data-qr]');
     const refresh = () => { for (const qr of replies) qr.checked = quickRepliesEnabled(undefined, qr.dataset.qr); };
     refresh();

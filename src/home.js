@@ -44,7 +44,8 @@ export function installHome(actions) {
         const toolsHeading = root.querySelector('.tools-heading');
         library = mountLibrary(char, body, root.querySelector('.home-search'), layouts);
         const outside = action => () => { close(); action(); };
-        const toolbox = mountToolbox(tools, { ...actions, manageDock: outside(actions.manageDock), addDock: outside(actions.addDock), revealDock: outside(actions.revealDock) });
+        const toolbox = mountToolbox(tools, { ...actions, manageDock: outside(actions.manageDock), addDock: outside(actions.addDock),
+            revealDock: outside(actions.revealDock), managePresetGroups: outside(actions.managePresetGroups) });
         const scroll = { char: 0, tools: 0 };
         let active = 'char';
         for (const tab of root.querySelectorAll('[data-tab]')) tab.addEventListener('click', () => {
