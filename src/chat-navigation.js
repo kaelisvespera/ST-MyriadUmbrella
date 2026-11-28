@@ -1,5 +1,6 @@
 import { getHost, notify } from './host.js';
 import { observeVeridisRewrites } from './veridis-rewrite.js';
+import { RED_BIRD_THINK } from './details-collapse.js';
 
 // Navigation behavior follows Junezz's 回顶/回底 v1.1.
 const commands = [
@@ -165,8 +166,14 @@ export function registerChatNavigationCommands(context = getHost()) {
 const generatedReplyTypes = new Set(['normal', 'continue', 'regenerate', 'swipe', 'append', 'appendFinal']);
 const sendControl = '#send_but,[data-tt-chat-input-editor-action="send"]';
 
-function hasReplyContent(value) {
-    return /[^.\u2026\s]/.test(String(value ?? ''));
+const redBirdThoughtDecorations = RED_BIRD_THINK + ', .rbt-think-stop, .custom-rbt-think-stop';
+
+function hasReplyContent(body) {
+    if (body.querySelector(redBirdThoughtDecorations)) {
+        body = body.cloneNode(true);
+        body.querySelectorAll(redBirdThoughtDecorations).forEach(element => element.remove());
+    }
+    return /[^.\u2026\s]/.test(body.textContent) || body.querySelector('img, video, iframe, audio');
 }
 
 export function installReplyLocation() {
@@ -183,6 +190,8 @@ export function installReplyLocation() {
     const hidden = () => document.visibilityState === 'hidden';
     const chatVisible = container => !hidden() && (!tauri || getComputedStyle(container).visibility === 'visible');
     const nativeAutoScroll = () => tauri && getHost().powerUserSettings?.auto_scroll_chat_to_bottom === true;
+    const redBirdAutoScroll = ({ context, container }) => tauri && container.dataset.ttChatSurface !== 'bounded'
+        && document.body.classList.contains('rbt-usage') && context.extensionSettings?.redbird_tools?.showBird !== false;
     const sentRows = new MutationObserver(scheduleSendCheck);
     const sendLayout = new ResizeObserver(scheduleSendCheck);
     const layout = new ResizeObserver(locateWhenVisible);
@@ -221,7 +230,7 @@ export function installReplyLocation() {
     }
 
     function readSendAnchor(session) {
-        if (!session || hidden() || !nativeAutoScroll()) return null;
+        if (!session || hidden() || (!nativeAutoScroll() && !redBirdAutoScroll(session))) return null;
         const { context: { chat }, container } = session;
         const nextId = chat.length;
         const previous = chat[nextId - 1];
@@ -269,7 +278,8 @@ export function installReplyLocation() {
         const { session, nextId, previous, offset, message } = anchor;
         const { container, context: { chat } } = session;
         const reply = chat[nextId + 1];
-        if (!nativeAutoScroll() || !isSameChat(session) || chat[nextId - 1] !== previous
+        const nativeFollow = nativeAutoScroll();
+        if ((!nativeFollow && !redBirdAutoScroll(session)) || !isSameChat(session) || chat[nextId - 1] !== previous
             || (message && chat[nextId] !== message) || chat.length > nextId + 2 || reply?.is_user || reply?.is_system) {
             clearSendAnchor();
             return;
@@ -277,14 +287,15 @@ export function installReplyLocation() {
         const height = container.clientHeight;
         if (!height) return;
         const replyBody = reply && container.querySelector(messageSelector(nextId + 1))?.querySelector('.mes_text');
-        if (replyBody && (hasReplyContent(replyBody.textContent) || replyBody.querySelector('img, video, iframe, audio'))) {
+        if (replyBody && hasReplyContent(replyBody)) {
             clearSendAnchor();
             // Restoring the viewport can engage TT's private scroll lock.
             // Once real output is rendered, the native bottom call resumes follow.
-            if (anchor.restored) getHost().scrollChatToBottom?.({ waitForFrame: true });
+            if (anchor.restored && nativeFollow) getHost().scrollChatToBottom?.({ waitForFrame: true });
             return;
         }
-        if (!message && height === anchor.height) return;
+        // RedBird's generation footer also follows the tail on its own.
+        if (nativeFollow ? !message && height === anchor.height : !container.querySelector(':scope > .rbt-gen')) return;
         const start = viewportTop(container);
         const previousRow = container.querySelector(messageSelector(nextId - 1));
         const previousTop = previousRow ? previousRow.getBoundingClientRect().top - start
@@ -293,7 +304,7 @@ export function installReplyLocation() {
         const userTop = userRow ? userRow.getBoundingClientRect().top - start : Infinity;
         // The old floor can still fill most of the viewport even if its first
         // pixels are clipped. Keep guarding through the empty assistant row.
-        if (Math.abs(previousTop) >= height && Math.abs(userTop) >= height) {
+        if (nativeFollow && Math.abs(previousTop) >= height && Math.abs(userTop) >= height) {
             if (message && !reply && !anchor.restored) {
                 anchor.offset = previousTop;
                 anchor.scrollTop = container.scrollTop;

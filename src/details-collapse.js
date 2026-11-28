@@ -3,6 +3,7 @@ import { getHost } from './host.js';
 const DETAILS_MARKER = 'data-collapse-btn';
 const CODE_MARKER = 'data-frontend-collapse-btn';
 const OWNED = 'data-myriad-details-collapse';
+export const RED_BIRD_THINK = 'details[data-rbt-mesid]:is(.rbt-think, .custom-rbt-think)';
 export const COLLAPSE_CONTROL = `[${DETAILS_MARKER}], [${CODE_MARKER}]`;
 const TARGETS = 'details, .TH-render, iframe';
 const STYLE = `
@@ -141,8 +142,9 @@ function observeCollapse(root, chat, frameDocument = null) {
             event.stopPropagation();
             if (!root.contains(button)) return;
             const restoreFocus = event.detail === 0 && button.ownerDocument.activeElement === button;
-            if (native) target.open = false;
-            else top.click();
+            // RedBird records expansion in its summary handler and reuses it on redraw.
+            if (!native || top && target.matches(RED_BIRD_THINK)) top.click();
+            else target.open = false;
             sync(target);
             if (!top) return;
             if (restoreFocus) top.focus({ preventScroll: true });

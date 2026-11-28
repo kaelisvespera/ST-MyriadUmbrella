@@ -3,7 +3,8 @@ import { dockCompatibility } from './dock-compat.js';
 
 // The old zmer dock's stable ID/script/class fingerprint is retained; controls
 // remain in their original document so document-level plugin handlers still work.
-const excluded = '#top-bar,#top-settings-holder,#send_form,#form_sheld,#rightNavHolder,#leftNavHolder,#st-tools-dock,.popup,dialog';
+const redBirdPanels = '#rbt-root,#rbt-shell-root,.rbt-float-menu,.rbt-float-asheet';
+const excluded = '#top-bar,#top-settings-holder,#send_form,#form_sheld,#rightNavHolder,#leftNavHolder,#st-tools-dock,.popup,dialog,' + redBirdPanels;
 const actions = 'button,[role="button"],.menu_button,.interactable';
 const clean = value => String(value || '').replace(/\s+/g, ' ').trim();
 
@@ -33,12 +34,16 @@ export function actionTarget(element) {
 export function findTarget(value, documentRef = document) {
     if (value.elementId === 'tw-jm-reader') return documentRef.getElementById(value.elementId)?.shadowRoot?.getElementById('orb') || null;
     if (value.elementId === 'bbi-app-host') return documentRef.getElementById(value.elementId)?.shadowRoot?.querySelector('.bbi-root[data-theme] > .bbi-orb[role="button"][aria-label="打开柏宝绘"]') || null;
-    if (value.elementId) return documentRef.getElementById(value.elementId);
+    if (value.elementId) {
+        const element = documentRef.getElementById(value.elementId);
+        return element?.closest?.(redBirdPanels) ? null : element;
+    }
     const selector = value.scriptId
         ? `[script_id="${CSS.escape(value.scriptId)}"]${value.classSelector || ''}`
         : value.classSelector;
     if (!selector) return null;
-    const matches = Array.from(documentRef.querySelectorAll(selector)).filter(element => !value.title || clean(element.getAttribute('title') || element.getAttribute('aria-label')) === value.title);
+    const matches = Array.from(documentRef.querySelectorAll(selector)).filter(element => !element.closest(redBirdPanels)
+        && (!value.title || clean(element.getAttribute('title') || element.getAttribute('aria-label')) === value.title));
     return matches.length === 1 ? matches[0] : null;
 }
 

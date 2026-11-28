@@ -2,7 +2,7 @@
 
 Android **0.2.5** 已正式发布：[下载安装包](https://github.com/atonal519/ST-MyriadUmbrella/releases/download/apk-v0.2.5/qianjisan-0.2.5.apk) · [源码与构建说明](android/README.md)。已有 0.1.6 及以上试用版可在 App 首页右上角检查更新，按系统提示覆盖安装。APK 与下方酒馆扩展分别更新。
 
-前端插件当前为 **0.1.16**，基于 Atonal 的千机伞 0.1.6，适配 TauriTavern 2.4.0。 [千机伞原版仓库](https://github.com/atonal519/ST-MyriadUmbrella)
+前端插件当前为 **0.1.17**，基于 Atonal 的千机伞 0.1.6，适配 TauriTavern 2.4.0。 [千机伞原版仓库](https://github.com/atonal519/ST-MyriadUmbrella)
 
 在酒馆的“扩展 → 安装扩展”中填入仓库地址，安装后刷新页面：
 
@@ -50,6 +50,12 @@ TT 移动端的主窗随宿主内容视口调整。使用系统返回时，已�
 开发验证：在酒馆安装目录的 `public/scripts/extensions/third-party/ST-MyriadUmbrella` 中运行 `npm test`，无需安装依赖。测试包含实际宿主 EventEmitter；可通过 `ST_UPSTREAM_REFERENCE=/path/to/SillyTavern npm test` 额外核对原生宿主参考代码。
 
 另已在 Chromium 隔离页加载原生 SillyTavern / Luker 的实际 HTML、CSS、千千结原悬浮球模块、完整最近请求插件及原生 Toastr，检查收纳显示、点击、拖入/拖出与恢复、局部编辑和通知交互。分类整理、原生“更多”菜单分发、实际 PromptManager 的开关处理与启用条目消费者也已覆盖。QR 使用内存测试接口，条目保存使用临时 HTTP 存储与宿主合并函数；隔离验证不等于实体手机或真实存档保存验收。
+
+## 0.1.17
+
+- 兼容红鸟工具箱 0.6.41：三栏面板的按钮不会被当作悬浮球收纳，TT 系统返回键会先关闭红鸟面板。
+- 普通聊天兼容红鸟生成状态栏的发送阶段滚动，思考提示出现时继续等到真正的回复正文。底部「收起」也会同步红鸟的思考折叠状态。
+- 如果开启了 TT 聊天虚拟化，请在红鸟「聊天工具箱 → 花费明细 → 聊天显示设置」关闭「小红鸟状态栏」。红鸟当前把这行状态直接插进 TT 的消息列表，虚拟列表不接受该节点。三栏界面和主题适配脚本可以继续开启。
 
 ## 0.1.16
 

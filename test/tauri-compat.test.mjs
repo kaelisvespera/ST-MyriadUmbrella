@@ -32,6 +32,29 @@ test('TT Back leaves light DOM dialogs to the host and restores the previous bri
     assert.equal(win.__TAURITAVERN_HANDLE_BACK__, original);
 });
 
+test('TT Back dismisses the mobile RedBird action sheet before the sidebar or chat', () => {
+    const closed = [];
+    const layers = new Map([
+        ['.rbt-float-asheet', { getClientRects: () => [1], querySelector(selector) {
+            assert.equal(selector, '.rbt-asheet-cancel');
+            return { click: () => { closed.push('action sheet'); layers.delete('.rbt-float-asheet'); } };
+        } }],
+        ['#rbt-shell-root .rbt-left-scrim', { getClientRects: () => [1],
+            click: () => { closed.push('sidebar'); layers.delete('#rbt-shell-root .rbt-left-scrim'); } }],
+    ]);
+    const win = {
+        __TAURITAVERN_HOST__: { kind: 'mobile' },
+        __TAURITAVERN_HANDLE_BACK__: () => { closed.push('chat'); return true; },
+        document: { querySelector: selector => layers.get(selector) },
+        getComputedStyle: () => ({ visibility: 'visible' }),
+    };
+    installTauriBack(() => false, win);
+    assert.equal(win.__TAURITAVERN_HANDLE_BACK__(), true);
+    assert.equal(win.__TAURITAVERN_HANDLE_BACK__(), true);
+    assert.equal(win.__TAURITAVERN_HANDLE_BACK__(), true);
+    assert.deepEqual(closed, ['action sheet', 'sidebar', 'chat']);
+});
+
 test('TT QR retract stops before touching a replacement chat that reuses the chat array', async t => {
     const chat = [{ is_user: true, mes: 'old input' }, { mes: 'old reply' }];
     const replacement = [{ is_user: true, mes: 'new input' }, { mes: 'new reply' }];
